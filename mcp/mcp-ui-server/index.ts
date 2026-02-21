@@ -11,4 +11,4 @@ const server = new MCPServer({
 
 registerAllTools(server);
 
-await server.listen(3001);
+await server.listen(3000);
