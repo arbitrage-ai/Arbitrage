@@ -120,34 +120,20 @@ export function registerESPNTools(server: McpServerInstance) {
     },
     async ({ player_name, league }) => {
       try {
-        // Search for the player first
-        const searchResults = (await espn.searchPlayers(player_name)) as {
-          results?: {
-            displayName: string;
-            athletes?: { id: string; displayName: string }[];
-          }[];
-        };
+        const searchResults = await espn.searchPlayers(player_name);
 
-        // Find athlete in results
         let playerId: string | null = null;
-        if (searchResults.results) {
-          for (const section of searchResults.results) {
-            if (section.athletes) {
-              const match = section.athletes.find(
-                (a) =>
-                  a.displayName
-                    .toLowerCase()
-                    .includes(player_name.toLowerCase()) ||
-                  player_name
-                    .toLowerCase()
-                    .includes(a.displayName.toLowerCase())
-              );
-              if (match) {
-                playerId = match.id;
-                break;
-              }
-            }
-          }
+        if (searchResults.items && searchResults.items.length > 0) {
+          const match = searchResults.items.find(
+            (item) =>
+              item.displayName
+                ?.toLowerCase()
+                .includes(player_name.toLowerCase()) ||
+              player_name
+                .toLowerCase()
+                .includes(item.displayName?.toLowerCase() ?? '')
+          );
+          playerId = match?.id ?? searchResults.items[0].id ?? null;
         }
 
         if (!playerId) {

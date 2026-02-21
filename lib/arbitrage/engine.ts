@@ -1,5 +1,8 @@
 import type { MatchedMarket } from './matcher.js';
 
+// Kalshi charges ~7% fee on net profit for standard tier
+const KALSHI_PROFIT_FEE = 0.07;
+
 export interface ArbitrageOpportunity {
   id: string;
   eventName: string;
@@ -7,84 +10,99 @@ export interface ArbitrageOpportunity {
   kalshiQuestion: string;
   polymarketSlug: string;
   polymarketQuestion: string;
-  /** Buy YES on Kalshi + NO on Polymarket, or vice versa */
   direction: string;
-  /** Side to buy on Kalshi: 'yes' or 'no' */
   kalshiSide: 'yes' | 'no';
   kalshiPrice: number;
   polymarketSide: 'YES' | 'NO';
-  polymarketTokenIdx: number; // 0 = YES token, 1 = NO token
+  polymarketTokenIdx: number;
+  polymarketTokenIds: string[];
   polymarketPrice: number;
   /** Guaranteed profit as decimal (0.03 = 3%) */
   edge: number;
-  /** Profit in dollars per contract pair */
   profitPerContract: number;
-  /** Total cost for one contract pair */
   totalCost: number;
-  /** ROI as percent */
   roi: number;
   matchConfidence: number;
+  matchMethod: 'fuzzy' | 'search';
+}
+
+export interface ProfitBreakdown {
+  contracts: number;
+  kalshiCost: number;
+  polymarketCost: number;
+  totalInvestment: number;
+  grossProfit: number;
+  kalshiFees: number;
+  netProfit: number;
+  netROI: number;
+  profitPer100: number;
 }
 
 /**
  * For each matched pair, check both trade directions for arbitrage.
- * Arbitrage exists when: priceA + priceB < 1.00
- * (buy YES on one platform + NO on the other for guaranteed profit)
+ * Uses bid prices for realistic execution (what you can actually buy at).
  */
 export function findArbitrageOpportunities(
   matched: MatchedMarket[],
-  minEdge = 0.01
+  minEdge = 0.005
 ): ArbitrageOpportunity[] {
   const opportunities: ArbitrageOpportunity[] = [];
 
   for (const m of matched) {
+    if (m.kalshiYesPrice <= 0 || m.kalshiNoPrice <= 0) continue;
+    if (m.polymarketYesPrice <= 0 || m.polymarketNoPrice <= 0) continue;
+
     // Direction 1: BUY YES on Kalshi + BUY NO on Polymarket
-    const edge1 = 1.0 - (m.kalshiYesPrice + m.polymarketNoPrice);
-    if (edge1 > minEdge) {
-      const cost = m.kalshiYesPrice + m.polymarketNoPrice;
+    const cost1 = m.kalshiYesPrice + m.polymarketNoPrice;
+    const edge1 = 1.0 - cost1;
+    if (edge1 > minEdge && cost1 > 0) {
       opportunities.push({
-        id: `${m.kalshiTicker}-YES-KPNO`,
+        id: `${m.kalshiTicker}::YES+NO`,
         eventName: m.kalshiQuestion,
         kalshiTicker: m.kalshiTicker,
         kalshiQuestion: m.kalshiQuestion,
         polymarketSlug: m.polymarketSlug,
         polymarketQuestion: m.polymarketQuestion,
-        direction: `BUY YES on Kalshi @ ${(m.kalshiYesPrice * 100).toFixed(1)}¢ + BUY NO on Polymarket @ ${(m.polymarketNoPrice * 100).toFixed(1)}¢`,
+        direction: `BUY YES on Kalshi @ ${(m.kalshiYesPrice * 100).toFixed(1)}¢  +  BUY NO on Polymarket @ ${(m.polymarketNoPrice * 100).toFixed(1)}¢`,
         kalshiSide: 'yes',
         kalshiPrice: m.kalshiYesPrice,
         polymarketSide: 'NO',
-        polymarketTokenIdx: 1, // index 1 = NO token
+        polymarketTokenIdx: 1,
+        polymarketTokenIds: m.polymarketTokenIds,
         polymarketPrice: m.polymarketNoPrice,
         edge: edge1,
         profitPerContract: edge1,
-        totalCost: cost,
-        roi: (edge1 / cost) * 100,
+        totalCost: cost1,
+        roi: (edge1 / cost1) * 100,
         matchConfidence: m.matchConfidence,
+        matchMethod: m.matchMethod,
       });
     }
 
     // Direction 2: BUY NO on Kalshi + BUY YES on Polymarket
-    const edge2 = 1.0 - (m.kalshiNoPrice + m.polymarketYesPrice);
-    if (edge2 > minEdge) {
-      const cost = m.kalshiNoPrice + m.polymarketYesPrice;
+    const cost2 = m.kalshiNoPrice + m.polymarketYesPrice;
+    const edge2 = 1.0 - cost2;
+    if (edge2 > minEdge && cost2 > 0) {
       opportunities.push({
-        id: `${m.kalshiTicker}-NO-KPYES`,
+        id: `${m.kalshiTicker}::NO+YES`,
         eventName: m.kalshiQuestion,
         kalshiTicker: m.kalshiTicker,
         kalshiQuestion: m.kalshiQuestion,
         polymarketSlug: m.polymarketSlug,
         polymarketQuestion: m.polymarketQuestion,
-        direction: `BUY NO on Kalshi @ ${(m.kalshiNoPrice * 100).toFixed(1)}¢ + BUY YES on Polymarket @ ${(m.polymarketYesPrice * 100).toFixed(1)}¢`,
+        direction: `BUY NO on Kalshi @ ${(m.kalshiNoPrice * 100).toFixed(1)}¢  +  BUY YES on Polymarket @ ${(m.polymarketYesPrice * 100).toFixed(1)}¢`,
         kalshiSide: 'no',
         kalshiPrice: m.kalshiNoPrice,
         polymarketSide: 'YES',
-        polymarketTokenIdx: 0, // index 0 = YES token
+        polymarketTokenIdx: 0,
+        polymarketTokenIds: m.polymarketTokenIds,
         polymarketPrice: m.polymarketYesPrice,
         edge: edge2,
         profitPerContract: edge2,
-        totalCost: cost,
-        roi: (edge2 / cost) * 100,
+        totalCost: cost2,
+        roi: (edge2 / cost2) * 100,
         matchConfidence: m.matchConfidence,
+        matchMethod: m.matchMethod,
       });
     }
   }
@@ -92,7 +110,38 @@ export function findArbitrageOpportunities(
   return opportunities.sort((a, b) => b.edge - a.edge);
 }
 
-/** Calculate how many contracts to buy given a max stake */
+/** Calculate fee-aware profit breakdown for a given number of contracts */
+export function calculateProfit(
+  opp: ArbitrageOpportunity,
+  maxStake: number
+): ProfitBreakdown {
+  const contracts = Math.floor(maxStake / opp.totalCost);
+  if (contracts < 1) {
+    return { contracts: 0, kalshiCost: 0, polymarketCost: 0, totalInvestment: 0, grossProfit: 0, kalshiFees: 0, netProfit: 0, netROI: 0, profitPer100: 0 };
+  }
+
+  const kalshiCost = contracts * opp.kalshiPrice;
+  const polymarketCost = contracts * opp.polymarketPrice;
+  const totalInvestment = kalshiCost + polymarketCost;
+  const grossProfit = contracts * opp.edge;
+  const kalshiFees = Math.max(0, grossProfit * KALSHI_PROFIT_FEE);
+  const netProfit = grossProfit - kalshiFees;
+  const netROI = totalInvestment > 0 ? (netProfit / totalInvestment) * 100 : 0;
+
+  return {
+    contracts,
+    kalshiCost,
+    polymarketCost,
+    totalInvestment,
+    grossProfit,
+    kalshiFees,
+    netProfit,
+    netROI,
+    profitPer100: netROI,
+  };
+}
+
+/** Legacy sizePosition for backward compatibility */
 export function sizePosition(
   opportunity: ArbitrageOpportunity,
   maxStake: number
@@ -103,23 +152,12 @@ export function sizePosition(
   totalCost: number;
   guaranteedProfit: number;
 } {
-  const contracts = Math.floor(maxStake / opportunity.totalCost);
-  if (contracts < 1) {
-    return {
-      contracts: 0,
-      kalshiCost: 0,
-      polymarketCost: 0,
-      totalCost: 0,
-      guaranteedProfit: 0,
-    };
-  }
-  const kalshiCost = contracts * opportunity.kalshiPrice;
-  const polymarketCost = contracts * opportunity.polymarketPrice;
+  const p = calculateProfit(opportunity, maxStake);
   return {
-    contracts,
-    kalshiCost,
-    polymarketCost,
-    totalCost: kalshiCost + polymarketCost,
-    guaranteedProfit: contracts * opportunity.edge,
+    contracts: p.contracts,
+    kalshiCost: p.kalshiCost,
+    polymarketCost: p.polymarketCost,
+    totalCost: p.totalInvestment,
+    guaranteedProfit: p.netProfit,
   };
 }

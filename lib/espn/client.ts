@@ -102,13 +102,13 @@ export class ESPNClient {
   async searchPlayers(
     query: string,
     limit = 10
-  ): Promise<unknown> {
-    const url = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(query)}&limit=${limit}`;
+  ): Promise<{ items: { id: string; displayName: string; sport?: string; league?: string }[] }> {
+    const url = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(query)}&limit=${limit}&type=player`;
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(`ESPN Search API error ${response.status}`);
     }
-    return response.json();
+    return response.json() as Promise<{ items: { id: string; displayName: string; sport?: string; league?: string }[] }>;
   }
 
   async getTeams(leagueKey: string): Promise<unknown> {

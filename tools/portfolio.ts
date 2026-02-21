@@ -44,10 +44,21 @@ export function registerPortfolioTools(server: McpServerInstance) {
         (platform === 'polymarket' || platform === 'both') &&
         state.polymarket
       ) {
-        result.polymarket = {
-          address: state.polymarket.address,
-          note: 'Polymarket balance is on-chain. Check your wallet for USDC balance on Polygon.',
-        };
+        try {
+          const { usdc, usdcNative } = await state.polymarket.client.getUSDCBalance();
+          const total = usdc + usdcNative;
+          result.polymarket = {
+            address: state.polymarket.address,
+            balance: formatDollars(total),
+            usdc_e: formatDollars(usdc),
+            usdc_native: formatDollars(usdcNative),
+          };
+        } catch (e: unknown) {
+          result.polymarket = {
+            address: state.polymarket.address,
+            balance_error: e instanceof Error ? e.message : String(e),
+          };
+        }
       } else if (platform === 'polymarket' || platform === 'both') {
         result.polymarket = {
           error: 'Not authenticated. Run polymarket_login first.',
@@ -182,14 +193,18 @@ export function registerPortfolioTools(server: McpServerInstance) {
 
       if (state.polymarket) {
         try {
-          const positions =
-            await state.polymarket.client.getPositions();
+          const [positions, balanceData] = await Promise.all([
+            state.polymarket.client.getPositions(),
+            state.polymarket.client.getUSDCBalance().catch(() => ({ usdc: 0, usdcNative: 0 })),
+          ]);
           const totalPnl = positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
+          const totalBalance = balanceData.usdc + balanceData.usdcNative;
 
           summary.platforms = {
             ...(summary.platforms as Record<string, unknown>),
             polymarket: {
               address: state.polymarket.address,
+              balance: formatDollars(totalBalance),
               open_positions: positions.length,
               total_pnl: formatPnl(totalPnl),
             },

@@ -3,14 +3,18 @@ import { text, error, object } from 'mcp-use/server';
 import type { McpServerInstance, ToolContext } from 'mcp-use/server';
 import { getSession } from '../lib/utils/session.js';
 import { getSessionId } from '../lib/utils/ctx.js';
-import { decimalToKalshiCents, formatDollars } from '../lib/utils/normalize.js';
+import {
+  decimalToKalshiCents,
+  kalshiCentsToDecimal,
+  formatDollars,
+} from '../lib/utils/normalize.js';
 
 export function registerTradingTools(server: McpServerInstance) {
   server.tool(
     {
       name: 'place_order',
       description:
-        'Place a buy or sell order on Kalshi or Polymarket. Use limit orders for better pricing.',
+        'Place a buy or sell order on Kalshi or Polymarket. Supports any quantity — from 1 to 1000+ contracts. Set price to 0 for auto-pricing at the current best ask (instant fill). For large orders, the tool checks orderbook depth and warns if liquidity is thin.',
       schema: z.object({
         platform: z
           .enum(['kalshi', 'polymarket'])
@@ -29,16 +33,16 @@ export function registerTradingTools(server: McpServerInstance) {
         quantity: z
           .number()
           .min(1)
-          .describe('Number of contracts to trade'),
+          .describe('Number of contracts to trade (1-1000+). No artificial limit.'),
         price: z
           .number()
-          .min(0.01)
+          .min(0)
           .max(0.99)
-          .describe('Limit price as a decimal (0.55 = 55 cents per contract)'),
+          .describe('Limit price as decimal (0.55 = 55¢). Set to 0 for auto-pricing at best ask for instant fill.'),
         order_type: z
           .enum(['limit', 'market'])
           .default('limit')
-          .describe('Order type (limit recommended for better fees)'),
+          .describe('Order type. "market" for instant execution at best available price.'),
       }),
     },
     async ({ platform, market_id, side, action, quantity, price, order_type }, ctx: ToolContext) => {
@@ -49,12 +53,42 @@ export function registerTradingTools(server: McpServerInstance) {
         }
 
         try {
-          const priceCents = decimalToKalshiCents(price);
+          let effectivePrice = price;
+          let autopriced = false;
+          let depthWarning: string | undefined;
+
+          // Auto-price at best ask for instant fill
+          if (price === 0 || order_type === 'market') {
+            const { market } = await state.kalshi.client.getMarket(market_id);
+            if (action === 'buy') {
+              effectivePrice = kalshiCentsToDecimal(side === 'yes' ? market.yes_ask : market.no_ask);
+            } else {
+              effectivePrice = kalshiCentsToDecimal(side === 'yes' ? market.yes_bid : market.no_bid);
+            }
+            autopriced = true;
+            if (effectivePrice <= 0) {
+              return error(`No ${action === 'buy' ? 'asks' : 'bids'} available for ${side} side. The market may be illiquid.`);
+            }
+          }
+
+          // Check orderbook depth for large orders
+          if (quantity >= 10) {
+            try {
+              const { orderbook } = await state.kalshi.client.getOrderbook(market_id);
+              const levels = side === 'yes' ? orderbook.yes : orderbook.no;
+              const totalDepth = levels.reduce((sum, [, qty]) => sum + qty, 0);
+              if (quantity > totalDepth * 2) {
+                depthWarning = `Orderbook has ~${totalDepth} contracts. Your order (${quantity}) may not fully fill at this price.`;
+              }
+            } catch { /* orderbook check is non-critical */ }
+          }
+
+          const priceCents = decimalToKalshiCents(effectivePrice);
           const orderInput = {
             ticker: market_id,
             action,
             side,
-            type: order_type,
+            type: order_type === 'market' ? 'limit' as const : order_type,
             count: quantity,
             ...(side === 'yes'
               ? { yes_price: priceCents }
@@ -74,13 +108,15 @@ export function registerTradingTools(server: McpServerInstance) {
             side: order.side,
             type: order.type,
             status: order.status,
+            autopriced,
             requested_quantity: quantity,
             quantity: orderedCount,
             filled_quantity: filledCount,
-            price: formatDollars(price),
-            total_cost: formatDollars(price * orderedCount),
-            filled_cost: formatDollars(price * filledCount),
+            price: formatDollars(effectivePrice),
+            total_cost: formatDollars(effectivePrice * orderedCount),
+            filled_cost: formatDollars(effectivePrice * filledCount),
             remaining: remainingCount,
+            ...(depthWarning ? { depth_warning: depthWarning } : {}),
           });
         } catch (e: unknown) {
           return error(
@@ -97,9 +133,26 @@ export function registerTradingTools(server: McpServerInstance) {
 
         try {
           const polySide = action === 'buy' ? 'BUY' : 'SELL';
+
+          let effectivePrice = price;
+          let autopriced = false;
+
+          if (price === 0 || order_type === 'market') {
+            const book = await state.polymarket.client.getOrderbook(market_id);
+            if (action === 'buy' && book.asks.length > 0) {
+              effectivePrice = parseFloat(book.asks[0].price);
+            } else if (action === 'sell' && book.bids.length > 0) {
+              effectivePrice = parseFloat(book.bids[0].price);
+            }
+            autopriced = true;
+            if (effectivePrice <= 0) {
+              return error('No liquidity on Polymarket for this token.');
+            }
+          }
+
           const order = await state.polymarket.client.placeOrder({
             tokenId: market_id,
-            price,
+            price: effectivePrice,
             size: quantity,
             side: polySide,
             orderType: order_type === 'market' ? 'FOK' : 'GTC',
@@ -110,9 +163,10 @@ export function registerTradingTools(server: McpServerInstance) {
             order_id: order.id,
             status: order.status,
             side: order.side,
-            price: formatDollars(price),
+            autopriced,
+            price: formatDollars(effectivePrice),
             size: quantity,
-            total_cost: formatDollars(price * quantity),
+            total_cost: formatDollars(effectivePrice * quantity),
           });
         } catch (e: unknown) {
           return error(
