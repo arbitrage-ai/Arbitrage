@@ -208,5 +208,65 @@
     },
     "clientInfo": {},
     "protocolVersion": "unknown"
+  },
+  "859e23e1-b05e-41d7-a546-4e9e97ccb8dd": {
+    "lastAccessedAt": 1771707869352,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "4f7ab367-a6a0-4347-b559-541f04df997c": {
+    "lastAccessedAt": 1771708217031,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "7a869b72-2953-4688-9d69-8d9919019c5b": {
+    "lastAccessedAt": 1771708770037,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "55093032-a4fb-4d9e-a23d-fd4b9e9ae959": {
+    "lastAccessedAt": 1771710341033,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
   }
 }

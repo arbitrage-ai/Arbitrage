@@ -488,11 +488,12 @@ export function registerArbitrageTools(server: McpServerInstance) {
             const pm = polyMarkets.find((m) => m.slug === best.polymarketSlug);
             if (pm && pm.clob_token_ids?.[best.polymarketTokenIdx]) {
               const tokenId = pm.clob_token_ids[best.polymarketTokenIdx];
+              const polymarketOrderSide = best.polymarketSide === 'YES' ? 'BUY' : 'SELL';
               const order = await state.polymarket.client.placeOrder({
                 tokenId,
                 price: best.polymarketPrice,
                 size: sizing.contracts,
-                side: best.polymarketSide,
+                side: polymarketOrderSide,
                 orderType: 'GTC',
               });
               orders.push({
