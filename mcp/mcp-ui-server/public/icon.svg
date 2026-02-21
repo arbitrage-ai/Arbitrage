@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" rx="20" fill="#1e293b"/>
+  <text x="50" y="62" text-anchor="middle" font-size="40" font-family="system-ui" fill="#38bdf8" font-weight="700">PE</text>
+  <circle cx="75" cy="25" r="8" fill="#22c55e"/>
+</svg>

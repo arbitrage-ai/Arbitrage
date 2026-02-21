@@ -1,0 +1,21 @@
+{
+  "name": "predictedge-auth-ui",
+  "version": "1.0.0",
+  "description": "MCP App UI server for Kalshi & Polymarket login and live portfolio",
+  "type": "module",
+  "scripts": {
+    "dev": "mcp-use dev",
+    "build": "mcp-use build",
+    "start": "mcp-use start",
+    "deploy": "mcp-use deploy"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "mcp-use": "latest",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
