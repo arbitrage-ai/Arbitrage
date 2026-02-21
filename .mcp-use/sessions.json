@@ -43,5 +43,170 @@
     },
     "clientInfo": {},
     "protocolVersion": "unknown"
+  },
+  "b009ee1a-95f2-4cee-9285-b4e284fb0be6": {
+    "lastAccessedAt": 1771706078191,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "45d3b9a7-c21c-4cdc-9df8-d52e1a6d0922": {
+    "lastAccessedAt": 1771706536378,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "1db9fcc0-c755-4976-a6fe-071393efaae7": {
+    "lastAccessedAt": 1771706664572,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "6e35dce6-3553-407a-aafa-23bf108a7fb4": {
+    "lastAccessedAt": 1771706847829,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "3347fd8a-f392-4083-9d21-d0e94aca8742": {
+    "lastAccessedAt": 1771706859550,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "71673cb7-30d6-472f-84f2-305363484a74": {
+    "lastAccessedAt": 1771706941398,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "10f07fb6-4159-411a-874e-3157f5f9bba5": {
+    "lastAccessedAt": 1771707028012,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "13dffa9f-d69a-400a-b2e9-48cdaabb2e5e": {
+    "lastAccessedAt": 1771707124129,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "ad0bfef7-c69c-4b58-a211-9a8dd63def21": {
+    "lastAccessedAt": 1771707154595,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "b069344a-901d-4ab4-a691-61eec315b9bb": {
+    "lastAccessedAt": 1771707311233,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "994fc6b3-f146-43f1-b52e-0ab6ed6577cd": {
+    "lastAccessedAt": 1771707553790,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
   }
 }

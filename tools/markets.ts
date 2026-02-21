@@ -53,7 +53,6 @@ export function registerMarketTools(server: McpServerInstance) {
                   (m.subtitle || '').toLowerCase().includes(queryLower)
               )
               .slice(0, limit);
-
             for (const m of matched) {
               results.push({
                 platform: 'kalshi',

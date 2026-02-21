@@ -10,6 +10,76 @@ import type {
 } from './types.js';
 
 const BASE_URL = 'https://api.elections.kalshi.com/trade-api/v2';
+const API_PATH_PREFIX = '/trade-api/v2';
+
+function chunkString(value: string, size: number): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < value.length; i += size) {
+    chunks.push(value.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function normalizePrivateKeyPem(privateKeyPem: string): string {
+  const input = privateKeyPem.replace(/\\r/g, '').replace(/\\n/g, '\n').trim();
+
+  // If we have BEGIN/END markers (possibly one-line), normalize body to 64-char PEM lines.
+  const beginMatch = input.match(/-----BEGIN ([A-Z ]+)-----/);
+  const endMatch = input.match(/-----END ([A-Z ]+)-----/);
+  if (!beginMatch && endMatch) {
+    throw new Error(
+      'Private key appears malformed: missing -----BEGIN ... PRIVATE KEY----- marker.'
+    );
+  }
+  if (beginMatch && !endMatch) {
+    const label = beginMatch[1].trim();
+    const beginMarker = `-----BEGIN ${label}-----`;
+    const beginIdx = input.indexOf(beginMarker);
+    const bodyRaw = input
+      .slice(beginIdx + beginMarker.length)
+      .replace(/[^A-Za-z0-9+/=]/g, '');
+
+    if (bodyRaw.length === 0) {
+      throw new Error('Private key body is empty');
+    }
+
+    const body = chunkString(bodyRaw, 64).join('\n');
+    return `-----BEGIN ${label}-----\n${body}\n-----END ${label}-----`;
+  }
+  if (beginMatch && endMatch) {
+    const label = beginMatch[1].trim();
+    const endLabel = endMatch[1].trim();
+    if (label !== endLabel) {
+      throw new Error(
+        `Private key markers mismatch: BEGIN ${label} but END ${endLabel}.`
+      );
+    }
+
+    const beginMarker = `-----BEGIN ${label}-----`;
+    const endMarker = `-----END ${label}-----`;
+    const beginIdx = input.indexOf(beginMarker);
+    const endIdx = input.indexOf(endMarker);
+
+    if (beginIdx >= 0 && endIdx > beginIdx) {
+      const bodyRaw = input
+        .slice(beginIdx + beginMarker.length, endIdx)
+        .replace(/[^A-Za-z0-9+/=]/g, '');
+      if (bodyRaw.length === 0) {
+        throw new Error('Private key body is empty');
+      }
+      const body = chunkString(bodyRaw, 64).join('\n');
+      return `${beginMarker}\n${body}\n${endMarker}`;
+    }
+  }
+
+  // Raw base64 without PEM markers.
+  const base64Body = input.replace(/[^A-Za-z0-9+/=]/g, '');
+  if (base64Body.length === 0) {
+    throw new Error('Private key content is empty');
+  }
+  const body = chunkString(base64Body, 64).join('\n');
+  return `-----BEGIN PRIVATE KEY-----\n${body}\n-----END PRIVATE KEY-----`;
+}
 
 export class KalshiClient {
   private apiKeyId: string;
@@ -17,15 +87,7 @@ export class KalshiClient {
 
   constructor(apiKeyId: string, privateKeyPem: string) {
     this.apiKeyId = apiKeyId;
-    // Normalize: replace literal \n with real newlines, trim whitespace
-    const normalized = privateKeyPem
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '')
-      .trim();
-    // Wrap in PEM headers if raw base64 was passed (no headers)
-    const pem = normalized.includes('-----')
-      ? normalized
-      : `-----BEGIN PRIVATE KEY-----\n${normalized}\n-----END PRIVATE KEY-----`;
+    const pem = normalizePrivateKeyPem(privateKeyPem);
     this.privateKey = crypto.createPrivateKey(pem);
   }
 
@@ -49,22 +111,43 @@ export class KalshiClient {
     body?: unknown
   ): Promise<T> {
     const timestampMs = Date.now();
-    // Sign with path only (no query params)
     const pathWithoutQuery = path.split('?')[0];
-    const signature = this.sign(timestampMs, method, pathWithoutQuery);
+    const primarySigningPath = `${API_PATH_PREFIX}${pathWithoutQuery}`;
+    const fallbackSigningPath = pathWithoutQuery;
 
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      'KALSHI-ACCESS-KEY': this.apiKeyId,
-      'KALSHI-ACCESS-TIMESTAMP': String(timestampMs),
-      'KALSHI-ACCESS-SIGNATURE': signature,
+    const send = async (signingPath: string): Promise<Response> => {
+      const signature = this.sign(timestampMs, method, signingPath);
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'KALSHI-ACCESS-KEY': this.apiKeyId,
+        'KALSHI-ACCESS-TIMESTAMP': String(timestampMs),
+        'KALSHI-ACCESS-SIGNATURE': signature,
+      };
+
+      return fetch(`${BASE_URL}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
     };
 
-    const response = await fetch(`${BASE_URL}${path}`, {
-      method,
-      headers,
-      body: body ? JSON.stringify(body) : undefined,
-    });
+    let response = await send(primarySigningPath);
+    if (
+      !response.ok &&
+      response.status === 401 &&
+      primarySigningPath !== fallbackSigningPath
+    ) {
+      const errorText = await response.text();
+      const isBadSignature =
+        errorText.includes('INCORRECT_API_KEY_SIGNATURE') ||
+        errorText.includes('authentication_error');
+
+      if (isBadSignature) {
+        response = await send(fallbackSigningPath);
+      } else {
+        throw new Error(`Kalshi API error ${response.status}: ${errorText}`);
+      }
+    }
 
     if (!response.ok) {
       const errorText = await response.text();

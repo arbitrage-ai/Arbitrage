@@ -4,16 +4,21 @@
  * Users must call kalshi_login / polymarket_login in every new session.
  * Credentials are never shared across sessions and expire after idle TTL.
  */
-import type { KalshiClient } from '../kalshi/client.js';
-import type { PolymarketClient } from '../polymarket/client.js';
+import { KalshiClient } from '../kalshi/client.js';
+import { PolymarketClient } from '../polymarket/client.js';
+import type { L2Credentials } from '../polymarket/types.js';
 
 export interface SessionState {
   kalshi?: {
     apiKeyId: string;
+    privateKeyPem: string;
     client: KalshiClient;
   };
   polymarket?: {
+    privateKey: string;
     address: string;
+    funderAddress?: string;
+    creds?: L2Credentials;
     client: PolymarketClient;
   };
 }
@@ -38,32 +43,83 @@ function touch(id: string): void {
   sessionLastSeen.set(id, Date.now());
 }
 
+function hydrateClients(session: SessionState): void {
+  if (session.kalshi) {
+    try {
+      session.kalshi.client = new KalshiClient(
+        session.kalshi.apiKeyId,
+        session.kalshi.privateKeyPem
+      );
+    } catch {
+      delete session.kalshi;
+    }
+  }
+
+  if (session.polymarket) {
+    try {
+      const client = new PolymarketClient(
+        session.polymarket.privateKey,
+        session.polymarket.creds,
+        session.polymarket.funderAddress
+      );
+      session.polymarket.client = client;
+      session.polymarket.address = client.address;
+    } catch {
+      delete session.polymarket;
+    }
+  }
+}
+
 export function getSession(sessionId: string): SessionState {
   touch(sessionId);
   if (!sessionMap.has(sessionId)) {
     sessionMap.set(sessionId, {});
   }
-  return sessionMap.get(sessionId)!;
+  const session = sessionMap.get(sessionId)!;
+  hydrateClients(session);
+  return session;
 }
 
 export function setKalshiSession(
   sessionId: string,
   apiKeyId: string,
-  client: KalshiClient
+  privateKeyPem: string
 ): void {
   touch(sessionId);
   const session = getSession(sessionId);
-  session.kalshi = { apiKeyId, client };
+  session.kalshi = {
+    apiKeyId,
+    privateKeyPem,
+    client: new KalshiClient(apiKeyId, privateKeyPem),
+  };
 }
 
 export function setPolymarketSession(
   sessionId: string,
-  address: string,
-  client: PolymarketClient
+  privateKey: string,
+  creds: L2Credentials,
+  funderAddress?: string
 ): void {
   touch(sessionId);
   const session = getSession(sessionId);
-  session.polymarket = { address, client };
+  const client = new PolymarketClient(privateKey, creds, funderAddress);
+  session.polymarket = {
+    privateKey,
+    funderAddress,
+    creds,
+    address: client.address,
+    client,
+  };
+}
+
+export function clearKalshiSession(sessionId: string): void {
+  const session = getSession(sessionId);
+  delete session.kalshi;
+}
+
+export function clearPolymarketSession(sessionId: string): void {
+  const session = getSession(sessionId);
+  delete session.polymarket;
 }
 
 export function clearSession(sessionId: string): void {

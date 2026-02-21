@@ -1,15 +1,21 @@
 /**
  * Extract a stable session ID from the tool context.
- * Uses the MCP session ID header set by the mcp-use transport layer.
+ * Prefer the official ToolContext session API.
  */
 import type { ToolContext } from 'mcp-use/server';
 
 export function getSessionId(ctx: ToolContext): string {
-  // mcp-use sets Mcp-Session-Id on each request
-  const sessionId =
-    (ctx as any).req?.header?.('mcp-session-id') ||
-    (ctx as any).req?.headers?.get?.('mcp-session-id') ||
-    (ctx as any).sessionId ||
-    'default';
-  return sessionId as string;
+  const anyCtx = ctx as any;
+  if (
+    typeof anyCtx?.session?.sessionId === 'string' &&
+    anyCtx.session.sessionId.length > 0
+  ) {
+    return anyCtx.session.sessionId;
+  }
+
+  if (typeof anyCtx?.sessionId === 'string' && anyCtx.sessionId.length > 0) {
+    return anyCtx.sessionId;
+  }
+
+  return 'default';
 }

@@ -1,15 +1,42 @@
 import { z } from 'zod';
+import { access, readFile } from 'node:fs/promises';
 import { text, error, object } from 'mcp-use/server';
 import type { McpServerInstance, ToolContext } from 'mcp-use/server';
 import { KalshiClient } from '../lib/kalshi/client.js';
 import { PolymarketClient } from '../lib/polymarket/client.js';
 import {
+  clearKalshiSession,
+  clearPolymarketSession,
   getSession,
   setKalshiSession,
   setPolymarketSession,
 } from '../lib/utils/session.js';
 import { getSessionId } from '../lib/utils/ctx.js';
 import { formatDollars } from '../lib/utils/normalize.js';
+
+async function resolveKalshiPrivateKey(input: string): Promise<string> {
+  const trimmed = input.trim().replace(/^['"]|['"]$/g, '');
+
+  const beginMatch = trimmed.match(/-----BEGIN ([A-Z ]+)-----/);
+  const endMatch = trimmed.match(/-----END ([A-Z ]+)-----/);
+  if (beginMatch && !endMatch) {
+    const label = beginMatch[1].trim();
+    return `${trimmed}\n-----END ${label}-----`;
+  }
+
+  if (trimmed.includes('-----BEGIN')) {
+    return trimmed;
+  }
+
+  // Support passing a filesystem path instead of raw PEM content.
+  try {
+    await access(trimmed);
+    const content = await readFile(trimmed, 'utf8');
+    return content.trim();
+  } catch {
+    return trimmed;
+  }
+}
 
 export function registerAuthTools(server: McpServerInstance) {
   server.tool(
@@ -29,17 +56,28 @@ export function registerAuthTools(server: McpServerInstance) {
       }),
     },
     async ({ api_key_id, private_key_pem }, ctx: ToolContext) => {
+      const sessionId = getSessionId(ctx);
       try {
-        const client = new KalshiClient(api_key_id, private_key_pem);
+        const resolvedKey = await resolveKalshiPrivateKey(private_key_pem);
+        const client = new KalshiClient(api_key_id, resolvedKey);
         // Verify auth by fetching balance
         const balance = await client.getBalance();
-        setKalshiSession(getSessionId(ctx), api_key_id, client);
+        setKalshiSession(sessionId, api_key_id, resolvedKey);
 
         return text(
           `Kalshi authenticated successfully.\nBalance: ${formatDollars(balance.balance / 100)}`
         );
       } catch (e: unknown) {
+        clearKalshiSession(sessionId);
         const msg = e instanceof Error ? e.message : String(e);
+        if (msg.startsWith('Private key')) {
+          return error(`Kalshi authentication failed: ${msg}`);
+        }
+        if (msg.includes('DECODER routines::unsupported')) {
+          return error(
+            'Kalshi authentication failed: invalid private key format. Provide PEM content (including BEGIN/END lines) or a valid path to the PEM file.'
+          );
+        }
         return error(`Kalshi authentication failed: ${msg}`);
       }
     }
@@ -65,21 +103,31 @@ export function registerAuthTools(server: McpServerInstance) {
       }),
     },
     async ({ private_key, funder_address }, ctx: ToolContext) => {
+      const sessionId = getSessionId(ctx);
       try {
+        const normalizedKey = private_key.startsWith('0x')
+          ? private_key
+          : `0x${private_key}`;
         const client = new PolymarketClient(
-          private_key,
+          normalizedKey,
           undefined,
           funder_address
         );
 
         // Derive L2 API credentials
         const creds = await client.deriveCredentials();
-        setPolymarketSession(getSessionId(ctx), client.address, client);
+        setPolymarketSession(
+          sessionId,
+          normalizedKey,
+          creds,
+          funder_address
+        );
 
         return text(
           `Polymarket authenticated successfully.\nWallet: ${client.address}\nAPI credentials derived.`
         );
       } catch (e: unknown) {
+        clearPolymarketSession(sessionId);
         const msg = e instanceof Error ? e.message : String(e);
         return error(`Polymarket authentication failed: ${msg}`);
       }
