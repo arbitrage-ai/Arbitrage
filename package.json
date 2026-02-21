@@ -1,0 +1,33 @@
+{
+  "name": "@arbitrage-ai/mcp",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "MCP server for managing Kalshi and Polymarket portfolios, arbitrage detection, and ESPN data integration",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "mcp-use build",
+    "dev": "mcp-use dev",
+    "start": "mcp-use start",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "mcp",
+    "kalshi",
+    "polymarket",
+    "espn",
+    "arbitrage",
+    "prediction-markets",
+    "trading"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "mcp-use": "^1.20.5",
+    "zod": "^4.3.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  }
+}
