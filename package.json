@@ -1,0 +1,23 @@
+{
+  "name": "betting-edge-analyzer",
+  "version": "1.0.0",
+  "description": "Sports betting edge analyzer MCP server integrating Kalshi, Polymarket, and ESPN data",
+  "type": "module",
+  "scripts": {
+    "dev": "mcp-use dev",
+    "build": "mcp-use build",
+    "start": "mcp-use start",
+    "deploy": "mcp-use deploy"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0",
+    "mcp-use": "latest",
+    "string-similarity": "^4.0.4",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/string-similarity": "^4.0.2",
+    "typescript": "^5.7.0"
+  }
+}

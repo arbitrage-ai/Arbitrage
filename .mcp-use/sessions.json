@@ -1,0 +1,47 @@
+{
+  "a1ef51cf-e325-424a-a765-ba0b2516981e": {
+    "lastAccessedAt": 1771704969909,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "2655dca8-7ff7-47f7-8133-97aee71f6f66": {
+    "lastAccessedAt": 1771705188460,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "247c5295-076a-42e8-84f5-6cb2c0599d44": {
+    "lastAccessedAt": 1771705256803,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  }
+}
