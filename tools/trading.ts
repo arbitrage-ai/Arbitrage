@@ -62,6 +62,9 @@ export function registerTradingTools(server: McpServerInstance) {
           } as const;
 
           const { order } = await state.kalshi.client.createOrder(orderInput);
+          const orderedCount = order.count;
+          const remainingCount = order.remaining_count;
+          const filledCount = Math.max(orderedCount - remainingCount, 0);
 
           return object({
             platform: 'kalshi',
@@ -71,10 +74,13 @@ export function registerTradingTools(server: McpServerInstance) {
             side: order.side,
             type: order.type,
             status: order.status,
-            quantity: order.count,
+            requested_quantity: quantity,
+            quantity: orderedCount,
+            filled_quantity: filledCount,
             price: formatDollars(price),
-            total_cost: formatDollars(price * quantity),
-            remaining: order.remaining_count,
+            total_cost: formatDollars(price * orderedCount),
+            filled_cost: formatDollars(price * filledCount),
+            remaining: remainingCount,
           });
         } catch (e: unknown) {
           return error(

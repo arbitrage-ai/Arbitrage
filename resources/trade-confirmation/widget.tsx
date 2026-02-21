@@ -104,7 +104,8 @@ function PlatformCard({ platform, data }: { platform: 'kalshi' | 'polymarket'; d
 
 export default function TradeConfirmation() {
   const { props } = useWidget<Props>({ orders: [], execution_errors: [] });
-  const { plan, orders, execution_errors, success, note } = props;
+  const { plan, execution_errors, success, note } = props;
+  const orders = props.orders ?? [];
   const isDryRun = plan?.dry_run;
 
   return (

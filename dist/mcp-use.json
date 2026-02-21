@@ -1,0 +1,15 @@
+{
+  "tunnel": {
+    "subdomain": "diplomatic-apricot"
+  },
+  "includeInspector": false,
+  "buildTime": "2026-02-21T22:29:35.933Z",
+  "buildId": "0f8330cd3df324fe",
+  "entryPoint": "dist/index.js",
+  "widgets": {
+    "arbitrage-scanner": {},
+    "live-scores": {},
+    "portfolio-dashboard": {},
+    "trade-confirmation": {}
+  }
+}

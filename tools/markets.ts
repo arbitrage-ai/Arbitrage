@@ -9,6 +9,19 @@ import {
   formatPercent,
 } from '../lib/utils/normalize.js';
 
+const COMBO_MARKET_PATTERNS = [
+  'multigame',
+  'multi-game',
+  'extended',
+  'combo',
+  'parlay',
+];
+
+function isLikelyComboMarket(...parts: Array<string | undefined>): boolean {
+  const joined = parts.filter(Boolean).join(' ').toLowerCase();
+  return COMBO_MARKET_PATTERNS.some((pattern) => joined.includes(pattern));
+}
+
 export function registerMarketTools(server: McpServerInstance) {
   server.tool(
     {
@@ -29,9 +42,15 @@ export function registerMarketTools(server: McpServerInstance) {
           .number()
           .default(20)
           .describe('Max results per platform'),
+        include_combo: z
+          .boolean()
+          .default(false)
+          .describe(
+            'Include combo/extended/parlay-style markets (default: false)'
+          ),
       }),
     },
-    async ({ query, platform, limit }, ctx: ToolContext) => {
+    async ({ query, platform, limit, include_combo }, ctx: ToolContext) => {
       const state = getSession(getSessionId(ctx));
       const results: unknown[] = [];
       const queryLower = query.toLowerCase();
@@ -51,6 +70,16 @@ export function registerMarketTools(server: McpServerInstance) {
                   m.title.toLowerCase().includes(queryLower) ||
                   m.event_ticker.toLowerCase().includes(queryLower) ||
                   (m.subtitle || '').toLowerCase().includes(queryLower)
+              )
+              .filter(
+                (m) =>
+                  include_combo ||
+                  !isLikelyComboMarket(
+                    m.ticker,
+                    m.event_ticker,
+                    m.title,
+                    m.subtitle
+                  )
               )
               .slice(0, limit);
             for (const m of matched) {
@@ -104,6 +133,11 @@ export function registerMarketTools(server: McpServerInstance) {
                 m.question.toLowerCase().includes(queryLower) ||
                 m.slug.toLowerCase().includes(queryLower)
             )
+            .filter(
+              (m) =>
+                include_combo ||
+                !isLikelyComboMarket(m.slug, m.question, m.description)
+            )
             .slice(0, limit);
 
           for (const m of matched) {
@@ -140,6 +174,7 @@ export function registerMarketTools(server: McpServerInstance) {
 
       return object({
         query,
+        include_combo,
         results,
         count: results.length,
       });

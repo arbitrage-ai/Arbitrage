@@ -85,15 +85,24 @@ export function registerAuthTools(server: McpServerInstance) {
 
   server.tool(
     {
-      name: 'polymarket_login',
+      name: 'polymarket_login_with_api_key',
       description:
-        'Authenticate with Polymarket using your Ethereum wallet private key. Derives L2 API credentials for trading.',
+        'Authenticate with Polymarket using existing API credentials (api_key/secret/passphrase) plus wallet private key.',
       schema: z.object({
         private_key: z
           .string()
           .describe(
             'Your Ethereum wallet private key (hex, with or without 0x prefix)'
           ),
+        api_key: z
+          .string()
+          .describe('Polymarket API key (key).'),
+        secret: z
+          .string()
+          .describe('Polymarket API secret (base64).'),
+        passphrase: z
+          .string()
+          .describe('Polymarket API passphrase.'),
         funder_address: z
           .string()
           .optional()
@@ -102,34 +111,45 @@ export function registerAuthTools(server: McpServerInstance) {
           ),
       }),
     },
-    async ({ private_key, funder_address }, ctx: ToolContext) => {
+    async (
+      { private_key, api_key, secret, passphrase, funder_address },
+      ctx: ToolContext
+    ) => {
       const sessionId = getSessionId(ctx);
       try {
         const normalizedKey = private_key.startsWith('0x')
           ? private_key
           : `0x${private_key}`;
-        const client = new PolymarketClient(
-          normalizedKey,
-          undefined,
-          funder_address
-        );
 
-        // Derive L2 API credentials
-        const creds = await client.deriveCredentials();
+        const client = new PolymarketClient(normalizedKey, undefined, funder_address);
+        client.setCreds({
+          apiKey: api_key,
+          secret,
+          passphrase,
+        });
+
+        // Some CLOB deployments/modes can return 405 on read-only order endpoints.
+        // Persist creds and allow subsequent trading calls to be the final validator.
+
         setPolymarketSession(
           sessionId,
           normalizedKey,
-          creds,
+          {
+            apiKey: api_key,
+            secret,
+            passphrase,
+          },
           funder_address
         );
 
         return text(
-          `Polymarket authenticated successfully.\nWallet: ${client.address}\nAPI credentials derived.`
+          `Polymarket credentials saved successfully.\nWallet: ${client.address}\n` +
+            `If needed, validate with get_orderbook or a small dry-run trading flow.`
         );
       } catch (e: unknown) {
         clearPolymarketSession(sessionId);
         const msg = e instanceof Error ? e.message : String(e);
-        return error(`Polymarket authentication failed: ${msg}`);
+        return error(`Polymarket API-key authentication failed: ${msg}`);
       }
     }
   );

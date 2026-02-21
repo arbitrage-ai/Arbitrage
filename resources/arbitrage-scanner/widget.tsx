@@ -66,7 +66,11 @@ function EdgeBar({ edge }: { edge: number }) {
 }
 
 function ExecuteButton({ opp, maxStake }: { opp: Opportunity; maxStake: number }) {
-  const { callTool, isPending, isSuccess, isError } = useCallTool('quick_arb');
+  const { callTool, isPending, isSuccess, isError } = useCallTool<{
+    sport: 'nfl' | 'nba' | 'mlb' | 'nhl' | 'ncaaf' | 'ncaab' | 'all';
+    max_stake: number;
+    dry_run: boolean;
+  }>('quick_arb');
   const [showConfirm, setShowConfirm] = useState(false);
 
   if (isSuccess) {

@@ -1,0 +1,15 @@
+export const SPORT_LEAGUE_MAP = {
+    nfl: { sport: 'football', league: 'nfl' },
+    nba: { sport: 'basketball', league: 'nba' },
+    mlb: { sport: 'baseball', league: 'mlb' },
+    nhl: { sport: 'hockey', league: 'nhl' },
+    ncaaf: { sport: 'football', league: 'college-football' },
+    ncaab: { sport: 'basketball', league: 'mens-college-basketball' },
+    wnba: { sport: 'basketball', league: 'wnba' },
+    mls: { sport: 'soccer', league: 'usa.1' },
+    epl: { sport: 'soccer', league: 'eng.1' },
+    laliga: { sport: 'soccer', league: 'esp.1' },
+    ufc: { sport: 'mma', league: 'ufc' },
+    f1: { sport: 'racing', league: 'f1' },
+    pga: { sport: 'golf', league: 'pga' },
+};

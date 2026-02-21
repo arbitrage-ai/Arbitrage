@@ -268,5 +268,50 @@
     },
     "clientInfo": {},
     "protocolVersion": "unknown"
+  },
+  "6064b454-6168-4795-b414-d4417192f6e6": {
+    "lastAccessedAt": 1771712733290,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "21e80e96-604c-4cd3-b845-5b3ff64c8f0e": {
+    "lastAccessedAt": 1771712822549,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
+  },
+  "6a894e74-df45-43cd-bd16-e9cea8ad0b47": {
+    "lastAccessedAt": 1771713304873,
+    "clientCapabilities": {
+      "sampling": {},
+      "elicitation": {
+        "form": {},
+        "url": {}
+      },
+      "roots": {
+        "listChanged": true
+      }
+    },
+    "clientInfo": {},
+    "protocolVersion": "unknown"
   }
 }
