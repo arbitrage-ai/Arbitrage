@@ -42,18 +42,19 @@ function PnlBadge({ value }) {
 }
 function PlatformBadge({ platform }) {
     const colors = {
-        kalshi: { bg: '#eff6ff', text: '#1d4ed8' },
-        polymarket: { bg: '#fdf4ff', text: '#7e22ce' },
+        kalshi: { bg: '#eff6ff', text: '#0284c7' },
+        polymarket: { bg: '#faf5ff', text: '#9333ea' },
     };
-    const style = colors[platform] || { bg: '#f3f4f6', text: '#374151' };
+    const style = colors[platform] || { bg: '#f5f5f5', text: '#666' };
     return (_jsx("span", { style: {
             background: style.bg,
             color: style.text,
-            borderRadius: 4,
-            padding: '2px 8px',
+            borderRadius: 6,
+            padding: '4px 10px',
             fontSize: 11,
-            fontWeight: 600,
+            fontWeight: 700,
             textTransform: 'uppercase',
+            letterSpacing: '0.05em',
         }, children: platform }));
 }
 export default function PortfolioDashboard() {
@@ -63,33 +64,37 @@ export default function PortfolioDashboard() {
     const [activeTab, setActiveTab] = useState('all');
     const filteredPositions = (props.positions || []).filter((p) => activeTab === 'all' || p.platform === activeTab);
     const tabStyle = (tab) => ({
-        padding: '6px 16px',
+        padding: '8px 18px',
         borderRadius: 6,
         border: 'none',
         cursor: 'pointer',
-        fontWeight: 500,
+        fontWeight: 600,
         fontSize: 13,
-        background: activeTab === tab ? '#1e293b' : 'transparent',
-        color: activeTab === tab ? '#fff' : '#64748b',
+        background: activeTab === tab ? '#111' : 'transparent',
+        color: activeTab === tab ? '#fff' : '#666',
+        transition: 'all 0.2s ease',
     });
-    return (_jsxs("div", { style: { fontFamily: 'system-ui, sans-serif', padding: 16, maxWidth: 720 }, children: [_jsx("h2", { style: { margin: '0 0 12px', fontSize: 18, fontWeight: 700, color: '#0f172a' }, children: "Portfolio Overview" }), _jsxs("div", { style: { display: 'flex', gap: 12, marginBottom: 16 }, children: [props.kalshi && (_jsxs("div", { style: {
+    return (_jsxs("div", { style: { fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 900, background: '#fafafa', minHeight: '100vh' }, children: [_jsx("h2", { style: { margin: '0 0 24px', fontSize: 24, fontWeight: 700, color: '#111', letterSpacing: '-0.02em' }, children: "Portfolio Overview" }), _jsxs("div", { style: { display: 'flex', gap: 14, marginBottom: 20, flexWrap: 'wrap' }, children: [props.kalshi && (_jsxs("div", { style: {
                             flex: 1,
-                            background: '#eff6ff',
-                            borderRadius: 8,
-                            padding: '12px 16px',
-                            border: '1px solid #bfdbfe',
-                        }, children: [_jsx("div", { style: { fontSize: 12, color: '#3b82f6', fontWeight: 600, marginBottom: 4 }, children: "KALSHI" }), _jsx("div", { style: { fontSize: 22, fontWeight: 700, color: '#1e3a8a' }, children: props.kalshi.balance || '—' }), _jsxs("div", { style: { fontSize: 12, color: '#6b7280', marginTop: 4 }, children: [props.kalshi.open_positions || 0, " positions \u00B7 ", props.kalshi.realized_pnl && (_jsx(PnlBadge, { value: props.kalshi.realized_pnl })), " P&L"] })] })), props.polymarket && (_jsxs("div", { style: {
+                            minWidth: 250,
+                            background: '#fff',
+                            borderRadius: 12,
+                            padding: '16px 20px',
+                            border: '1px solid #e5e5e5',
+                        }, children: [_jsx("div", { style: { fontSize: 11, color: '#0284c7', fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }, children: "Kalshi" }), _jsx("div", { style: { fontSize: 28, fontWeight: 700, color: '#111' }, children: props.kalshi.balance || '—' }), _jsxs("div", { style: { fontSize: 13, color: '#888', marginTop: 8 }, children: [props.kalshi.open_positions || 0, " positions \u00B7 ", props.kalshi.realized_pnl && (_jsx(PnlBadge, { value: props.kalshi.realized_pnl })), " P&L"] })] })), props.polymarket && (_jsxs("div", { style: {
                             flex: 1,
-                            background: '#fdf4ff',
-                            borderRadius: 8,
-                            padding: '12px 16px',
-                            border: '1px solid #e9d5ff',
-                        }, children: [_jsx("div", { style: { fontSize: 12, color: '#7e22ce', fontWeight: 600, marginBottom: 4 }, children: "POLYMARKET" }), _jsx("div", { style: {
-                                    fontSize: 13,
+                            minWidth: 250,
+                            background: '#fff',
+                            borderRadius: 12,
+                            padding: '16px 20px',
+                            border: '1px solid #e5e5e5',
+                        }, children: [_jsx("div", { style: { fontSize: 11, color: '#9333ea', fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }, children: "Polymarket" }), _jsx("div", { style: {
+                                    fontSize: 14,
                                     fontWeight: 600,
-                                    color: '#4c1d95',
+                                    color: '#111',
                                     wordBreak: 'break-all',
+                                    fontFamily: 'ui-monospace, monospace',
                                 }, children: props.polymarket.address
-                                    ? `${props.polymarket.address.slice(0, 6)}...${props.polymarket.address.slice(-4)}`
-                                    : '—' }), _jsxs("div", { style: { fontSize: 12, color: '#6b7280', marginTop: 4 }, children: [props.polymarket.open_positions || 0, " positions", props.polymarket.total_pnl && (_jsxs(_Fragment, { children: [' · ', _jsx(PnlBadge, { value: props.polymarket.total_pnl })] }))] })] }))] }), _jsx("div", { style: { display: 'flex', gap: 4, marginBottom: 12, background: '#f1f5f9', borderRadius: 8, padding: 4 }, children: ['all', 'kalshi', 'polymarket'].map((tab) => (_jsx("button", { style: tabStyle(tab), onClick: () => setActiveTab(tab), children: tab.charAt(0).toUpperCase() + tab.slice(1) }, tab))) }), filteredPositions.length === 0 ? (_jsx("div", { style: { textAlign: 'center', color: '#94a3b8', padding: 32, fontSize: 14 }, children: "No positions found" })) : (_jsx("div", { style: { border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' }, children: _jsxs("table", { style: { width: '100%', borderCollapse: 'collapse', fontSize: 13 }, children: [_jsx("thead", { children: _jsxs("tr", { style: { background: '#f8fafc' }, children: [_jsx("th", { style: { padding: '8px 12px', textAlign: 'left', color: '#64748b', fontWeight: 600 }, children: "Platform" }), _jsx("th", { style: { padding: '8px 12px', textAlign: 'left', color: '#64748b', fontWeight: 600 }, children: "Market" }), _jsx("th", { style: { padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: 600 }, children: "Position" }), _jsx("th", { style: { padding: '8px 12px', textAlign: 'right', color: '#64748b', fontWeight: 600 }, children: "P&L" })] }) }), _jsx("tbody", { children: filteredPositions.map((pos, i) => (_jsxs("tr", { style: { borderTop: '1px solid #e2e8f0', background: i % 2 === 0 ? '#fff' : '#f8fafc' }, children: [_jsx("td", { style: { padding: '8px 12px' }, children: _jsx(PlatformBadge, { platform: pos.platform }) }), _jsxs("td", { style: { padding: '8px 12px', color: '#1e293b', maxWidth: 240 }, children: [_jsx("div", { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, children: pos.ticker || pos.market || 'Unknown' }), pos.outcome && (_jsx("div", { style: { fontSize: 11, color: '#94a3b8' }, children: pos.outcome }))] }), _jsxs("td", { style: { padding: '8px 12px', textAlign: 'right', color: '#1e293b' }, children: [pos.position ?? pos.size ?? '—', pos.exposure && (_jsx("div", { style: { fontSize: 11, color: '#94a3b8' }, children: pos.exposure }))] }), _jsx("td", { style: { padding: '8px 12px', textAlign: 'right' }, children: pos.pnl ? _jsx(PnlBadge, { value: pos.pnl }) : pos.realized_pnl ? _jsx(PnlBadge, { value: pos.realized_pnl }) : '—' })] }, i))) })] }) })), _jsxs("div", { style: { fontSize: 11, color: '#94a3b8', marginTop: 8, textAlign: 'right' }, children: [props.total_positions || 0, " total positions"] })] }));
+                                    ? `${props.polymarket.address.slice(0, 8)}...${props.polymarket.address.slice(-6)}`
+                                    : '—' }), _jsxs("div", { style: { fontSize: 13, color: '#888', marginTop: 8 }, children: [props.polymarket.open_positions || 0, " positions", props.polymarket.total_pnl && (_jsxs(_Fragment, { children: [' · ', _jsx(PnlBadge, { value: props.polymarket.total_pnl })] }))] })] }))] }), _jsx("div", { style: { display: 'flex', gap: 6, marginBottom: 16, background: '#fff', borderRadius: 10, padding: 6, border: '1px solid #e5e5e5' }, children: ['all', 'kalshi', 'polymarket'].map((tab) => (_jsx("button", { style: tabStyle(tab), onClick: () => setActiveTab(tab), children: tab.charAt(0).toUpperCase() + tab.slice(1) }, tab))) }), filteredPositions.length === 0 ? (_jsx("div", { style: { textAlign: 'center', color: '#999', padding: 48, fontSize: 14, background: '#fff', borderRadius: 12, border: '1px solid #e5e5e5' }, children: "No positions found" })) : (_jsx("div", { style: { border: '1px solid #e5e5e5', borderRadius: 12, overflow: 'hidden', background: '#fff' }, children: _jsxs("table", { style: { width: '100%', borderCollapse: 'collapse', fontSize: 13 }, children: [_jsx("thead", { children: _jsxs("tr", { style: { background: '#fafafa' }, children: [_jsx("th", { style: { padding: '12px 16px', textAlign: 'left', color: '#666', fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.05em' }, children: "Platform" }), _jsx("th", { style: { padding: '12px 16px', textAlign: 'left', color: '#666', fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.05em' }, children: "Market" }), _jsx("th", { style: { padding: '12px 16px', textAlign: 'right', color: '#666', fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.05em' }, children: "Position" }), _jsx("th", { style: { padding: '12px 16px', textAlign: 'right', color: '#666', fontWeight: 700, textTransform: 'uppercase', fontSize: 11, letterSpacing: '0.05em' }, children: "P&L" })] }) }), _jsx("tbody", { children: filteredPositions.map((pos, i) => (_jsxs("tr", { style: { borderTop: '1px solid #f0f0f0' }, children: [_jsx("td", { style: { padding: '12px 16px' }, children: _jsx(PlatformBadge, { platform: pos.platform }) }), _jsxs("td", { style: { padding: '12px 16px', color: '#111', maxWidth: 280 }, children: [_jsx("div", { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 }, children: pos.ticker || pos.market || 'Unknown' }), pos.outcome && (_jsx("div", { style: { fontSize: 12, color: '#888', marginTop: 2 }, children: pos.outcome }))] }), _jsxs("td", { style: { padding: '12px 16px', textAlign: 'right', color: '#111', fontWeight: 600 }, children: [pos.position ?? pos.size ?? '—', pos.exposure && (_jsx("div", { style: { fontSize: 12, color: '#888', marginTop: 2 }, children: pos.exposure }))] }), _jsx("td", { style: { padding: '12px 16px', textAlign: 'right' }, children: pos.pnl ? _jsx(PnlBadge, { value: pos.pnl }) : pos.realized_pnl ? _jsx(PnlBadge, { value: pos.realized_pnl }) : '—' })] }, i))) })] }) })), _jsxs("div", { style: { fontSize: 12, color: '#999', marginTop: 12, textAlign: 'right' }, children: [props.total_positions || 0, " total positions"] })] }));
 }

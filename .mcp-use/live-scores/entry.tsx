@@ -1,7 +1,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import './styles.css'
-import Component from '/Users/vir/Downloads/Projects/mcp/resources/live-scores/widget.tsx'
+import Component from '/Users/suryaakella/Documents/Public-ESPN-API/resources/live-scores/widget.tsx'
 
 const container = document.getElementById('widget-root')
 if (container && Component) {

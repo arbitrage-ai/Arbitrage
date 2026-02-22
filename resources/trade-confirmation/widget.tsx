@@ -60,15 +60,16 @@ function StatusIcon({ success }: { success?: boolean }) {
   return (
     <div
       style={{
-        width: 48,
-        height: 48,
+        width: 56,
+        height: 56,
         borderRadius: '50%',
-        background: success ? '#dcfce7' : '#fee2e2',
+        background: success ? '#d1fae5' : '#fee2e2',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        fontSize: 24,
-        marginBottom: 12,
+        fontSize: 28,
+        marginBottom: 16,
+        border: `3px solid ${success ? '#10b981' : '#ef4444'}`,
       }}
     >
       {success ? '✓' : '✗'}
@@ -78,22 +79,22 @@ function StatusIcon({ success }: { success?: boolean }) {
 
 function PlatformCard({ platform, data }: { platform: 'kalshi' | 'polymarket'; data: Record<string, unknown> }) {
   const colors = {
-    kalshi: { bg: '#eff6ff', border: '#bfdbfe', label: '#3b82f6', text: '#1e40af' },
-    polymarket: { bg: '#fdf4ff', border: '#e9d5ff', label: '#7e22ce', text: '#4c1d95' },
+    kalshi: { bg: '#f0f9ff', border: '#e0f2fe', label: '#0284c7', text: '#0369a1' },
+    polymarket: { bg: '#faf5ff', border: '#f3e8ff', label: '#9333ea', text: '#7e22ce' },
   };
   const c = colors[platform];
 
   return (
-    <div style={{ flex: 1, background: c.bg, border: `1px solid ${c.border}`, borderRadius: 8, padding: '12px 16px' }}>
-      <div style={{ fontSize: 11, color: c.label, fontWeight: 700, marginBottom: 8 }}>
-        {platform.toUpperCase()}
+    <div style={{ flex: 1, minWidth: 200, background: '#fff', border: `2px solid ${c.border}`, borderRadius: 12, padding: '14px 18px' }}>
+      <div style={{ fontSize: 11, color: c.label, fontWeight: 700, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        {platform}
       </div>
       {Object.entries(data).map(([key, val]) => (
-        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 12, color: '#64748b' }}>
+        <div key={key} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: '#888' }}>
             {key.replace(/_/g, ' ')}
           </span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: c.text }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#111' }}>
             {String(val)}
           </span>
         </div>
@@ -109,14 +110,14 @@ export default function TradeConfirmation() {
   const isDryRun = plan?.dry_run;
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, maxWidth: 600 }}>
-      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 16 }}>
+    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 700, background: '#fafafa', minHeight: '100vh' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24 }}>
         <StatusIcon success={isDryRun ? undefined : success} />
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a', textAlign: 'center' }}>
-          {isDryRun ? '📋 Trade Plan (Dry Run)' : success ? '✅ Trade Executed!' : '⚠️ Partial Execution'}
+        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#111', textAlign: 'center', letterSpacing: '-0.02em' }}>
+          {isDryRun ? 'Trade Plan (Dry Run)' : success ? 'Trade Executed!' : 'Partial Execution'}
         </h2>
         {note && (
-          <p style={{ margin: '8px 0 0', fontSize: 14, color: '#64748b', textAlign: 'center' }}>
+          <p style={{ margin: '10px 0 0', fontSize: 14, color: '#666', textAlign: 'center' }}>
             {note}
           </p>
         )}
@@ -126,43 +127,43 @@ export default function TradeConfirmation() {
         <>
           <div
             style={{
-              background: '#f0fdf4',
-              border: '1px solid #86efac',
-              borderRadius: 8,
-              padding: '12px 16px',
-              marginBottom: 16,
+              background: '#fff',
+              border: '2px solid #10b981',
+              borderRadius: 12,
+              padding: '18px 20px',
+              marginBottom: 20,
             }}
           >
-            <div style={{ fontSize: 12, color: '#166534', fontWeight: 700, marginBottom: 8 }}>
-              PROFIT SUMMARY
+            <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700, marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Profit Summary
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               <div>
-                <div style={{ fontSize: 11, color: '#4ade80' }}>Guaranteed Profit</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: '#16a34a' }}>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Guaranteed Profit</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: '#10b981' }}>
                   {plan.guaranteed_profit}
                 </div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: '#64748b' }}>Edge</div>
-                <div style={{ fontSize: 18, fontWeight: 700, color: '#15803d' }}>{plan.edge_pct}</div>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Edge</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#059669' }}>{plan.edge_pct}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: '#64748b' }}>Total Cost</div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>{plan.total_cost}</div>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>Total Cost</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#111' }}>{plan.total_cost}</div>
               </div>
               <div>
-                <div style={{ fontSize: 11, color: '#64748b' }}>ROI</div>
-                <div style={{ fontSize: 15, fontWeight: 600, color: '#1e293b' }}>{plan.roi_pct}</div>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>ROI</div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: '#111' }}>{plan.roi_pct}</div>
               </div>
             </div>
           </div>
 
-          <div style={{ fontSize: 13, color: '#475569', marginBottom: 10, padding: '8px 12px', background: '#f8fafc', borderRadius: 6 }}>
+          <div style={{ fontSize: 14, color: '#666', marginBottom: 16, padding: '12px 16px', background: '#fff', borderRadius: 10, border: '1px solid #e5e5e5' }}>
             {plan.opportunity}
           </div>
 
-          <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
             {plan.kalshi_order && (
               <PlatformCard
                 platform="kalshi"
@@ -192,9 +193,9 @@ export default function TradeConfirmation() {
       )}
 
       {orders.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 8 }}>
-            PLACED ORDERS
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#666', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Placed Orders
           </div>
           {orders.map((order, i) => (
             <div
@@ -203,33 +204,38 @@ export default function TradeConfirmation() {
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                padding: '8px 12px',
-                background: '#f8fafc',
-                borderRadius: 6,
-                marginBottom: 6,
-                fontSize: 12,
+                padding: '12px 16px',
+                background: '#fff',
+                borderRadius: 10,
+                marginBottom: 8,
+                fontSize: 13,
+                border: '1px solid #e5e5e5',
               }}
             >
               <div>
                 <span
                   style={{
-                    background: order.platform === 'kalshi' ? '#eff6ff' : '#fdf4ff',
-                    color: order.platform === 'kalshi' ? '#1d4ed8' : '#7e22ce',
-                    borderRadius: 3,
-                    padding: '1px 6px',
+                    background: order.platform === 'kalshi' ? '#eff6ff' : '#faf5ff',
+                    color: order.platform === 'kalshi' ? '#0284c7' : '#9333ea',
+                    borderRadius: 6,
+                    padding: '4px 8px',
                     fontWeight: 700,
                     fontSize: 10,
-                    marginRight: 6,
+                    marginRight: 8,
+                    textTransform: 'uppercase',
+                    letterSpacing: '0.05em',
                   }}
                 >
-                  {order.platform.toUpperCase()}
+                  {order.platform}
                 </span>
                 {order.ticker || order.market} · {order.side.toUpperCase()} · {order.quantity} @ {order.price}
               </div>
               <span
                 style={{
-                  color: order.status === 'resting' || order.status === 'active' ? '#16a34a' : '#64748b',
-                  fontWeight: 600,
+                  color: order.status === 'resting' || order.status === 'active' ? '#10b981' : '#888',
+                  fontWeight: 700,
+                  fontSize: 12,
+                  textTransform: 'uppercase',
                 }}
               >
                 {order.status}
@@ -242,17 +248,17 @@ export default function TradeConfirmation() {
       {execution_errors && execution_errors.length > 0 && (
         <div
           style={{
-            background: '#fef2f2',
-            border: '1px solid #fecaca',
-            borderRadius: 8,
-            padding: '10px 14px',
+            background: '#fff',
+            border: '2px solid #fca5a5',
+            borderRadius: 12,
+            padding: '14px 18px',
           }}
         >
-          <div style={{ fontSize: 12, fontWeight: 700, color: '#dc2626', marginBottom: 6 }}>
-            ERRORS
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Errors
           </div>
           {execution_errors.map((err, i) => (
-            <div key={i} style={{ fontSize: 12, color: '#b91c1c', marginBottom: 2 }}>
+            <div key={i} style={{ fontSize: 13, color: '#dc2626', marginBottom: 4 }}>
               • {err}
             </div>
           ))}
@@ -262,16 +268,16 @@ export default function TradeConfirmation() {
       {isDryRun && (
         <div
           style={{
-            marginTop: 12,
-            padding: '8px 14px',
-            background: '#fef9c3',
-            border: '1px solid #fde047',
-            borderRadius: 6,
-            fontSize: 12,
-            color: '#713f12',
+            marginTop: 16,
+            padding: '12px 16px',
+            background: '#fff',
+            border: '2px solid #fde047',
+            borderRadius: 12,
+            fontSize: 13,
+            color: '#92400e',
           }}
         >
-          ⚠️ Dry run — no real trades were placed. Set <code>dry_run=false</code> to execute.
+          <strong>Dry run mode:</strong> No real trades were placed. Set <code style={{ background: '#fef3c7', padding: '2px 6px', borderRadius: 4 }}>dry_run=false</code> to execute.
         </div>
       )}
     </div>

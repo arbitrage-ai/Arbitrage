@@ -152,31 +152,32 @@ export default function ArbitrageScanner() {
   const summary = props.scan_summary;
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 16, maxWidth: 760 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+    <div style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 800, background: '#fafafa', minHeight: '100vh' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24 }}>
         <div>
-          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>
+          <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#111', letterSpacing: '-0.02em' }}>
             Arbitrage Scanner
           </h2>
           {summary && (
-            <p style={{ margin: '4px 0 0', fontSize: 12, color: '#64748b' }}>
-              {summary.sport.toUpperCase()} · {summary.matched_pairs} matched pairs · {opportunities.length} opportunities
+            <p style={{ margin: '6px 0 0', fontSize: 14, color: '#666' }}>
+              {summary.sport.toUpperCase()} · {summary.matched_pairs} pairs · {opportunities.length} opportunities
             </p>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <label style={{ fontSize: 12, color: '#64748b' }}>Max stake:</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#fff', padding: '8px 12px', borderRadius: 8, border: '1px solid #e5e5e5' }}>
+          <label style={{ fontSize: 13, color: '#666', fontWeight: 500 }}>Max stake:</label>
           <input
             type="number"
             value={maxStake}
             onChange={(e) => setMaxStake(Number(e.target.value))}
             min={1}
             style={{
-              width: 60,
-              padding: '4px 8px',
-              border: '1px solid #e2e8f0',
-              borderRadius: 4,
-              fontSize: 13,
+              width: 70,
+              padding: '6px 10px',
+              border: '1px solid #e5e5e5',
+              borderRadius: 6,
+              fontSize: 14,
+              fontWeight: 500,
             }}
           />
         </div>
@@ -186,74 +187,76 @@ export default function ArbitrageScanner() {
         <div
           style={{
             textAlign: 'center',
-            padding: 48,
-            background: '#f8fafc',
-            borderRadius: 8,
-            color: '#94a3b8',
+            padding: 60,
+            background: '#fff',
+            borderRadius: 12,
+            color: '#999',
+            border: '1px solid #e5e5e5',
           }}
         >
-          <div style={{ fontSize: 32, marginBottom: 8 }}>🔍</div>
-          <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 4 }}>No Arbitrage Found</div>
-          <div style={{ fontSize: 13 }}>Markets are currently efficiently priced between platforms.</div>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🔍</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6, color: '#333' }}>No Arbitrage Found</div>
+          <div style={{ fontSize: 14 }}>Markets are efficiently priced</div>
         </div>
       ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {opportunities.map((opp, i) => (
             <div
               key={opp.id}
               style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: 8,
-                padding: '12px 16px',
-                background: i === 0 ? '#f0fdf4' : '#fff',
-                borderColor: i === 0 ? '#86efac' : '#e2e8f0',
+                border: i === 0 ? '2px solid #10b981' : '1px solid #e5e5e5',
+                borderRadius: 12,
+                padding: '16px 20px',
+                background: '#fff',
+                boxShadow: i === 0 ? '0 4px 12px rgba(16, 185, 129, 0.1)' : 'none',
               }}
             >
               {i === 0 && (
-                <div style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, marginBottom: 4 }}>
-                  ★ BEST OPPORTUNITY
+                <div style={{ fontSize: 11, color: '#10b981', fontWeight: 700, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  ★ Best Opportunity
                 </div>
               )}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div style={{ flex: 1, marginRight: 12 }}>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: '#1e293b', marginBottom: 4 }}>
+                <div style={{ flex: 1, marginRight: 16 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, color: '#111', marginBottom: 6, lineHeight: 1.3 }}>
                     {opp.event}
                   </div>
-                  <div style={{ fontSize: 12, color: '#475569', marginBottom: 8 }}>
+                  <div style={{ fontSize: 13, color: '#666', marginBottom: 12 }}>
                     {opp.trade}
                   </div>
-                  <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', gap: 20, alignItems: 'center', flexWrap: 'wrap' }}>
                     <EdgeBar edge={opp.edge_pct} />
-                    <span style={{ fontSize: 12, color: '#64748b' }}>
+                    <span style={{ fontSize: 13, color: '#888' }}>
                       ${opp.profit_per_contract.toFixed(4)}/contract · {opp.roi_pct.toFixed(1)}% ROI
                     </span>
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 10 }}>
                   <ExecuteButton opp={opp} maxStake={maxStake} />
-                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
-                    {Math.floor(maxStake / opp.total_cost_per_pair)} contracts · ${(Math.floor(maxStake / opp.total_cost_per_pair) * opp.profit_per_contract).toFixed(2)} profit
+                  <div style={{ fontSize: 12, color: '#999', textAlign: 'right' }}>
+                    {Math.floor(maxStake / opp.total_cost_per_pair)} contracts<br />
+                    ${(Math.floor(maxStake / opp.total_cost_per_pair) * opp.profit_per_contract).toFixed(2)} profit
                   </div>
                 </div>
               </div>
 
-              <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
-                <div style={{ flex: 1, background: '#eff6ff', borderRadius: 6, padding: '6px 10px' }}>
-                  <div style={{ fontSize: 10, color: '#3b82f6', fontWeight: 700, marginBottom: 2 }}>KALSHI</div>
-                  <div style={{ fontSize: 12, color: '#1e40af' }}>
+              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                <div style={{ flex: 1, background: '#f0f9ff', borderRadius: 8, padding: '10px 12px', border: '1px solid #e0f2fe' }}>
+                  <div style={{ fontSize: 10, color: '#0284c7', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Kalshi</div>
+                  <div style={{ fontSize: 13, color: '#111', fontWeight: 600 }}>
                     {opp.kalshi_side.toUpperCase()} @ {(opp.kalshi_price * 100).toFixed(1)}¢
                   </div>
-                  <div style={{ fontSize: 10, color: '#93c5fd' }}>{opp.kalshi_ticker}</div>
+                  <div style={{ fontSize: 10, color: '#0284c7', marginTop: 2, opacity: 0.7 }}>{opp.kalshi_ticker}</div>
                 </div>
-                <div style={{ flex: 1, background: '#fdf4ff', borderRadius: 6, padding: '6px 10px' }}>
-                  <div style={{ fontSize: 10, color: '#7e22ce', fontWeight: 700, marginBottom: 2 }}>POLYMARKET</div>
-                  <div style={{ fontSize: 12, color: '#4c1d95' }}>
+                <div style={{ flex: 1, background: '#faf5ff', borderRadius: 8, padding: '10px 12px', border: '1px solid #f3e8ff' }}>
+                  <div style={{ fontSize: 10, color: '#9333ea', fontWeight: 700, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Polymarket</div>
+                  <div style={{ fontSize: 13, color: '#111', fontWeight: 600 }}>
                     {opp.polymarket_side} @ {(opp.polymarket_price * 100).toFixed(1)}¢
                   </div>
-                  <div style={{ fontSize: 10, color: '#c084fc' }}>{opp.polymarket_slug}</div>
+                  <div style={{ fontSize: 10, color: '#9333ea', marginTop: 2, opacity: 0.7 }}>{opp.polymarket_slug}</div>
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 8px', color: '#94a3b8', fontSize: 11 }}>
-                  {opp.match_confidence}% match
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 12px', color: '#999', fontSize: 12, fontWeight: 500 }}>
+                  {opp.match_confidence}%
                 </div>
               </div>
             </div>
