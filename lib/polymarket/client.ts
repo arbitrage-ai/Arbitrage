@@ -297,11 +297,45 @@ export class PolymarketClient {
     return response.json() as Promise<unknown[]>;
   }
 
-  // ---- On-chain balance ----
+  // ---- Balance ----
 
-  async getUSDCBalance(address?: string): Promise<{ usdc: number; usdcNative: number }> {
+  /**
+   * Returns all USDC the user has access to:
+   *   - exchange: collateral deposited into the Polymarket exchange (tradeable)
+   *   - usdc / usdcNative: ERC-20 tokens sitting in the wallet (need deposit)
+   */
+  async getUSDCBalance(address?: string): Promise<{
+    usdc: number;
+    usdcNative: number;
+    exchange: number;
+  }> {
+    const [onChain, exchange] = await Promise.all([
+      this.getOnChainUSDCBalance(address).catch(() => ({ usdc: 0, usdcNative: 0 })),
+      this.creds
+        ? this.getExchangeCollateral().catch(() => 0)
+        : Promise.resolve(0),
+    ]);
+
+    return { ...onChain, exchange };
+  }
+
+  /**
+   * Query the CLOB API for the user's collateral balance inside the exchange.
+   * This reflects deposited USDC available for trading — not wallet balance.
+   */
+  async getExchangeCollateral(): Promise<number> {
+    const data = await this.clobRequest<{ balance?: string; allowance?: string }>(
+      'GET',
+      '/balance-allowance?asset_type=COLLATERAL&signature_type=2',
+    );
+    const raw = parseFloat(data.balance || '0');
+    // CLOB API returns balance in micro-USDC (6 decimals)
+    return raw > 1000 ? raw / 1e6 : raw;
+  }
+
+  private async getOnChainUSDCBalance(address?: string): Promise<{ usdc: number; usdcNative: number }> {
     const raw = (address || this.address).toLowerCase().replace('0x', '');
-    const paddedAddr = raw.padStart(64, '0'); // 40-char address → 64-char ABI-encoded
+    const paddedAddr = raw.padStart(64, '0');
 
     const callBalance = async (token: string, rpcUrl: string): Promise<number> => {
       const data = `${ERC20_BALANCE_OF}${paddedAddr}`;
@@ -320,8 +354,8 @@ export class PolymarketClient {
         const msg = json.error.message ?? json.error.code ?? JSON.stringify(json.error);
         throw new Error(`RPC error: ${msg}`);
       }
-      const raw = BigInt(json.result || '0x0');
-      return Number(raw) / 1e6; // USDC has 6 decimals
+      const rawVal = BigInt(json.result || '0x0');
+      return Number(rawVal) / 1e6;
     };
 
     const tryRpc = async (token: string): Promise<number> => {

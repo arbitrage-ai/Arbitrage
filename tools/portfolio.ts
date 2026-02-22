@@ -51,13 +51,19 @@ export function registerPortfolioTools(server: McpServerInstance) {
         state.polymarket
       ) {
         try {
-          const { usdc, usdcNative } = await state.polymarket.client.getUSDCBalance();
-          const total = usdc + usdcNative;
+          const { usdc, usdcNative, exchange } = await state.polymarket.client.getUSDCBalance();
+          const wallet = usdc + usdcNative;
+          const total = exchange + wallet;
           result.polymarket = {
             address: state.polymarket.address,
             balance: formatDollars(total),
-            usdc_e: formatDollars(usdc),
-            usdc_native: formatDollars(usdcNative),
+            exchange_balance: formatDollars(exchange),
+            wallet_balance: formatDollars(wallet),
+            wallet_usdc_e: formatDollars(usdc),
+            wallet_usdc_native: formatDollars(usdcNative),
+            ...(wallet > 0 && exchange === 0
+              ? { note: 'USDC is in your wallet but not deposited into the exchange. Deposit on polymarket.com to trade.' }
+              : {}),
           };
         } catch (e: unknown) {
           result.polymarket = {
@@ -225,16 +231,18 @@ export function registerPortfolioTools(server: McpServerInstance) {
         try {
           const [positions, balanceData] = await Promise.all([
             state.polymarket.client.getPositions(),
-            state.polymarket.client.getUSDCBalance().catch(() => ({ usdc: 0, usdcNative: 0 })),
+            state.polymarket.client.getUSDCBalance().catch(() => ({ usdc: 0, usdcNative: 0, exchange: 0 })),
           ]);
           const totalPnl = positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
-          const totalBalance = balanceData.usdc + balanceData.usdcNative;
+          const totalBalance = balanceData.exchange + balanceData.usdc + balanceData.usdcNative;
 
           summary.platforms = {
             ...(summary.platforms as Record<string, unknown>),
             polymarket: {
               address: state.polymarket.address,
               balance: formatDollars(totalBalance),
+              exchange_balance: formatDollars(balanceData.exchange),
+              wallet_balance: formatDollars(balanceData.usdc + balanceData.usdcNative),
               open_positions: positions.length,
               total_pnl: formatPnl(totalPnl),
             },

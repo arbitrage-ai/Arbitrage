@@ -192,12 +192,14 @@ export function registerAuthTools(server: McpServerInstance) {
 
       if (state.polymarket) {
         try {
-          const { usdc, usdcNative } = await state.polymarket.client.getUSDCBalance();
-          const total = usdc + usdcNative;
+          const { usdc, usdcNative, exchange } = await state.polymarket.client.getUSDCBalance();
+          const wallet = usdc + usdcNative;
           result.polymarket = {
             authenticated: true,
             address: state.polymarket.address,
-            balance: formatDollars(total),
+            balance: formatDollars(exchange + wallet),
+            exchange_balance: formatDollars(exchange),
+            wallet_balance: formatDollars(wallet),
           };
         } catch {
           result.polymarket = {
