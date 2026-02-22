@@ -1,0 +1,110 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="520" viewBox="0 0 800 520">
+  <defs>
+    <style>
+      text { font-family: system-ui, -apple-system, sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="800" height="520" fill="#ffffff" rx="12"/>
+
+  <!-- Header -->
+  <text x="16" y="36" font-size="18" font-weight="700" fill="#0f172a">NFL</text>
+  <text x="16" y="52" font-size="12" fill="#64748b">Feb 21, 2026</text>
+
+  <!-- LIVE NOW section -->
+  <circle cx="22" cy="78" r="4" fill="#dc2626"/>
+  <text x="32" y="82" font-size="12" font-weight="700" fill="#dc2626">LIVE NOW</text>
+
+  <!-- Live Game Card 1 -->
+  <rect x="16" y="94" width="240" height="150" rx="8" fill="#fff7f7" stroke="#fca5a5"/>
+
+  <!-- Status badge - live -->
+  <rect x="28" y="106" width="80" height="20" rx="4" fill="#fef2f2"/>
+  <circle cx="38" cy="116" r="3" fill="#dc2626"/>
+  <text x="46" y="120" font-size="11" font-weight="600" fill="#dc2626">Q3 8:42</text>
+
+  <!-- Away team -->
+  <text x="28" y="152" font-size="15" font-weight="500" fill="#1e293b">Bills</text>
+  <text x="224" y="152" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">21</text>
+
+  <!-- Home team -->
+  <text x="28" y="178" font-size="15" font-weight="700" fill="#1e293b">Chiefs</text>
+  <text x="224" y="178" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">24</text>
+
+  <!-- Odds line -->
+  <line x1="28" y1="194" x2="236" y2="194" stroke="#f1f5f9"/>
+  <text x="28" y="210" font-size="11" fill="#64748b">Spread: KC -3.5</text>
+  <text x="120" y="210" font-size="11" fill="#64748b">O/U: 48.5</text>
+  <text x="180" y="210" font-size="11" fill="#64748b">ML: +150 / -170</text>
+
+  <!-- Live Game Card 2 -->
+  <rect x="268" y="94" width="240" height="150" rx="8" fill="#fff7f7" stroke="#fca5a5"/>
+
+  <rect x="280" y="106" width="70" height="20" rx="4" fill="#fef2f2"/>
+  <circle cx="290" cy="116" r="3" fill="#dc2626"/>
+  <text x="298" y="120" font-size="11" font-weight="600" fill="#dc2626">Q2 2:15</text>
+
+  <text x="280" y="152" font-size="15" font-weight="700" fill="#1e293b">Eagles</text>
+  <text x="476" y="152" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">17</text>
+
+  <text x="280" y="178" font-size="15" font-weight="500" fill="#1e293b">Cowboys</text>
+  <text x="476" y="178" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">10</text>
+
+  <line x1="280" y1="194" x2="488" y2="194" stroke="#f1f5f9"/>
+  <text x="280" y="210" font-size="11" fill="#64748b">Spread: PHI -4</text>
+  <text x="372" y="210" font-size="11" fill="#64748b">O/U: 44.5</text>
+  <text x="430" y="210" font-size="11" fill="#64748b">ML: -180 / +160</text>
+
+  <!-- OTHER GAMES section -->
+  <text x="16" y="280" font-size="12" font-weight="600" fill="#64748b">OTHER GAMES</text>
+
+  <!-- Final game card -->
+  <rect x="16" y="294" width="240" height="140" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <rect x="28" y="306" width="42" height="20" rx="4" fill="#f3f4f6"/>
+  <text x="35" y="320" font-size="11" font-weight="600" fill="#374151">Final</text>
+
+  <text x="28" y="348" font-size="15" font-weight="700" fill="#1e293b">Packers</text>
+  <text x="224" y="348" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">31</text>
+
+  <text x="28" y="374" font-size="15" font-weight="500" fill="#1e293b">Vikings</text>
+  <text x="224" y="374" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">24</text>
+
+  <line x1="28" y1="390" x2="236" y2="390" stroke="#f1f5f9"/>
+  <text x="28" y="406" font-size="11" fill="#64748b">Spread: GB -2.5</text>
+  <text x="120" y="406" font-size="11" fill="#64748b">O/U: 50</text>
+
+  <!-- Scheduled game card -->
+  <rect x="268" y="294" width="240" height="140" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <rect x="280" y="306" width="64" height="20" rx="4" fill="#eff6ff"/>
+  <text x="290" y="320" font-size="11" font-weight="600" fill="#2563eb">8:20 PM</text>
+
+  <text x="280" y="348" font-size="15" font-weight="500" fill="#1e293b">Ravens</text>
+  <text x="476" y="348" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">-</text>
+
+  <text x="280" y="374" font-size="15" font-weight="500" fill="#1e293b">Bengals</text>
+  <text x="476" y="374" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">-</text>
+
+  <line x1="280" y1="390" x2="488" y2="390" stroke="#f1f5f9"/>
+  <text x="280" y="406" font-size="11" fill="#64748b">Spread: BAL -6</text>
+  <text x="372" y="406" font-size="11" fill="#64748b">O/U: 47</text>
+  <text x="430" y="406" font-size="11" fill="#64748b">ML: -240 / +200</text>
+
+  <!-- Another scheduled game -->
+  <rect x="520" y="294" width="240" height="140" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+
+  <rect x="532" y="306" width="64" height="20" rx="4" fill="#eff6ff"/>
+  <text x="542" y="320" font-size="11" font-weight="600" fill="#2563eb">4:25 PM</text>
+
+  <text x="532" y="348" font-size="15" font-weight="500" fill="#1e293b">49ers</text>
+  <text x="728" y="348" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">-</text>
+
+  <text x="532" y="374" font-size="15" font-weight="500" fill="#1e293b">Rams</text>
+  <text x="728" y="374" font-size="22" font-weight="700" fill="#0f172a" text-anchor="end">-</text>
+
+  <line x1="532" y1="390" x2="740" y2="390" stroke="#f1f5f9"/>
+  <text x="532" y="406" font-size="11" fill="#64748b">Spread: SF -3</text>
+  <text x="618" y="406" font-size="11" fill="#64748b">O/U: 45.5</text>
+</svg>

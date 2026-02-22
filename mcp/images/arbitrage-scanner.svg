@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="480" viewBox="0 0 760 480">
+  <defs>
+    <style>
+      text { font-family: system-ui, -apple-system, sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="760" height="480" fill="#ffffff" rx="12"/>
+
+  <!-- Header -->
+  <text x="16" y="36" font-size="18" font-weight="700" fill="#0f172a">Arbitrage Scanner</text>
+  <text x="16" y="52" font-size="12" fill="#64748b">NFL · 12 matched pairs · 3 opportunities</text>
+
+  <!-- Max stake control -->
+  <text x="600" y="36" font-size="12" fill="#64748b">Max stake:</text>
+  <rect x="660" y="22" width="60" height="24" rx="4" fill="#fff" stroke="#e2e8f0"/>
+  <text x="680" y="39" font-size="13" fill="#1e293b">10</text>
+
+  <!-- Card 1: Best Opportunity -->
+  <rect x="16" y="68" width="728" height="150" rx="8" fill="#f0fdf4" stroke="#86efac"/>
+  <text x="28" y="86" font-size="11" font-weight="700" fill="#16a34a">★ BEST OPPORTUNITY</text>
+  <text x="28" y="106" font-size="14" font-weight="600" fill="#1e293b">Chiefs vs Bills - Winner</text>
+  <text x="28" y="122" font-size="12" fill="#475569">Buy YES on Kalshi + Buy NO on Polymarket</text>
+
+  <!-- Edge bar -->
+  <rect x="28" y="134" width="80" height="8" rx="4" fill="#e2e8f0"/>
+  <rect x="28" y="134" width="56" height="8" rx="4" fill="#16a34a"/>
+  <text x="116" y="142" font-size="13" font-weight="700" fill="#16a34a">5.20%</text>
+  <text x="170" y="142" font-size="12" fill="#64748b">$0.0520/contract · 5.4% ROI</text>
+
+  <!-- Execute button -->
+  <rect x="640" y="90" width="90" height="28" rx="4" fill="#1e293b"/>
+  <text x="660" y="109" font-size="12" font-weight="600" fill="#ffffff">Execute →</text>
+  <text x="645" y="132" font-size="11" fill="#94a3b8">10 contracts · $0.52 profit</text>
+
+  <!-- Kalshi badge -->
+  <rect x="28" y="156" width="230" height="50" rx="6" fill="#eff6ff"/>
+  <text x="38" y="172" font-size="10" font-weight="700" fill="#3b82f6">KALSHI</text>
+  <text x="38" y="188" font-size="12" fill="#1e40af">YES @ 47.0¢</text>
+  <text x="38" y="200" font-size="10" fill="#93c5fd">KXNFL-CHIEFS-BILLS</text>
+
+  <!-- Polymarket badge -->
+  <rect x="268" y="156" width="230" height="50" rx="6" fill="#fdf4ff"/>
+  <text x="278" y="172" font-size="10" font-weight="700" fill="#7e22ce">POLYMARKET</text>
+  <text x="278" y="188" font-size="12" fill="#4c1d95">No @ 47.8¢</text>
+  <text x="278" y="200" font-size="10" fill="#c084fc">chiefs-vs-bills-winner</text>
+
+  <!-- Match confidence -->
+  <text x="520" y="185" font-size="11" fill="#94a3b8">92% match</text>
+
+  <!-- Card 2 -->
+  <rect x="16" y="228" width="728" height="120" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="28" y="252" font-size="14" font-weight="600" fill="#1e293b">Lakers vs Celtics - Spread</text>
+  <text x="28" y="268" font-size="12" fill="#475569">Buy NO on Kalshi + Buy YES on Polymarket</text>
+
+  <!-- Edge bar 2 -->
+  <rect x="28" y="280" width="80" height="8" rx="4" fill="#e2e8f0"/>
+  <rect x="28" y="280" width="24" height="8" rx="4" fill="#ca8a04"/>
+  <text x="116" y="288" font-size="13" font-weight="700" fill="#ca8a04">3.10%</text>
+  <text x="170" y="288" font-size="12" fill="#64748b">$0.0310/contract · 3.2% ROI</text>
+
+  <rect x="640" y="240" width="90" height="28" rx="4" fill="#1e293b"/>
+  <text x="660" y="259" font-size="12" font-weight="600" fill="#ffffff">Execute →</text>
+
+  <!-- Kalshi badge 2 -->
+  <rect x="28" y="300" width="230" height="38" rx="6" fill="#eff6ff"/>
+  <text x="38" y="315" font-size="10" font-weight="700" fill="#3b82f6">KALSHI</text>
+  <text x="38" y="330" font-size="12" fill="#1e40af">NO @ 52.0¢</text>
+
+  <!-- Polymarket badge 2 -->
+  <rect x="268" y="300" width="230" height="38" rx="6" fill="#fdf4ff"/>
+  <text x="278" y="315" font-size="10" font-weight="700" fill="#7e22ce">POLYMARKET</text>
+  <text x="278" y="330" font-size="12" fill="#4c1d95">Yes @ 44.9¢</text>
+
+  <text x="520" y="325" font-size="11" fill="#94a3b8">88% match</text>
+
+  <!-- Card 3 -->
+  <rect x="16" y="358" width="728" height="100" rx="8" fill="#ffffff" stroke="#e2e8f0"/>
+  <text x="28" y="382" font-size="14" font-weight="600" fill="#1e293b">Eagles vs Cowboys - Total Points O/U</text>
+  <text x="28" y="398" font-size="12" fill="#475569">Buy YES on Kalshi + Buy NO on Polymarket</text>
+
+  <rect x="28" y="410" width="80" height="8" rx="4" fill="#e2e8f0"/>
+  <rect x="28" y="410" width="14" height="8" rx="4" fill="#ea580c"/>
+  <text x="116" y="418" font-size="13" font-weight="700" fill="#ea580c">1.50%</text>
+  <text x="170" y="418" font-size="12" fill="#64748b">$0.0150/contract · 1.6% ROI</text>
+
+  <rect x="640" y="370" width="90" height="28" rx="4" fill="#1e293b"/>
+  <text x="660" y="389" font-size="12" font-weight="600" fill="#ffffff">Execute →</text>
+
+  <rect x="28" y="430" width="230" height="20" rx="6" fill="#eff6ff"/>
+  <text x="38" y="444" font-size="10" font-weight="700" fill="#3b82f6">KALSHI</text>
+  <text x="90" y="444" font-size="11" fill="#1e40af">YES @ 51.0¢</text>
+
+  <rect x="268" y="430" width="230" height="20" rx="6" fill="#fdf4ff"/>
+  <text x="278" y="444" font-size="10" font-weight="700" fill="#7e22ce">POLYMARKET</text>
+  <text x="350" y="444" font-size="11" fill="#4c1d95">No @ 47.5¢</text>
+
+  <text x="520" y="444" font-size="11" fill="#94a3b8">85% match</text>
+</svg>
