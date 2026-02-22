@@ -41,4 +41,13 @@ export declare class PolymarketClient {
     getOpenOrders(): Promise<PolymarketOrder[]>;
     getPositions(address?: string, conditionId?: string): Promise<PolymarketPosition[]>;
     getTrades(address?: string, marketId?: string): Promise<unknown[]>;
+    getUSDCBalance(address?: string): Promise<{
+        usdc: number;
+        usdcNative: number;
+    }>;
+    static parseMarketFields(raw: Record<string, unknown>): {
+        outcomes: string[];
+        outcomePrices: string[];
+        clobTokenIds: string[];
+    };
 }

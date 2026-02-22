@@ -74,12 +74,17 @@ export class ESPNClient {
     playerId: string
   ): Promise<unknown> {
     const { sport, league } = this.resolveSportLeague(leagueKey);
-    const url = `${ATHLETE_API}/${sport}/${league}/athletes/${playerId}/overview`;
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`ESPN Athlete API error ${response.status}: ${url}`);
-    }
-    return response.json();
+
+    // Try the overview endpoint first, fall back to the basic athlete endpoint
+    const overviewUrl = `${ATHLETE_API}/${sport}/${league}/athletes/${playerId}/overview`;
+    const overviewRes = await fetch(overviewUrl);
+    if (overviewRes.ok) return overviewRes.json();
+
+    const fallbackUrl = `${SITE_API.replace('/site/v2', '/common/v3')}/${sport}/${league}/athletes/${playerId}`;
+    const fallbackRes = await fetch(fallbackUrl);
+    if (fallbackRes.ok) return fallbackRes.json();
+
+    throw new Error(`ESPN Athlete API error: player ${playerId} not found (tried overview + fallback)`);
   }
 
   async getPlayerGamelog(

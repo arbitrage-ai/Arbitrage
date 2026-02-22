@@ -46,12 +46,16 @@ export class ESPNClient {
     }
     async getPlayerOverview(leagueKey, playerId) {
         const { sport, league } = this.resolveSportLeague(leagueKey);
-        const url = `${ATHLETE_API}/${sport}/${league}/athletes/${playerId}/overview`;
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`ESPN Athlete API error ${response.status}: ${url}`);
-        }
-        return response.json();
+        // Try the overview endpoint first, fall back to the basic athlete endpoint
+        const overviewUrl = `${ATHLETE_API}/${sport}/${league}/athletes/${playerId}/overview`;
+        const overviewRes = await fetch(overviewUrl);
+        if (overviewRes.ok)
+            return overviewRes.json();
+        const fallbackUrl = `${SITE_API.replace('/site/v2', '/common/v3')}/${sport}/${league}/athletes/${playerId}`;
+        const fallbackRes = await fetch(fallbackUrl);
+        if (fallbackRes.ok)
+            return fallbackRes.json();
+        throw new Error(`ESPN Athlete API error: player ${playerId} not found (tried overview + fallback)`);
     }
     async getPlayerGamelog(leagueKey, playerId, season) {
         const { sport, league } = this.resolveSportLeague(leagueKey);
@@ -67,7 +71,7 @@ export class ESPNClient {
         return response.json();
     }
     async searchPlayers(query, limit = 10) {
-        const url = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(query)}&limit=${limit}`;
+        const url = `https://site.web.api.espn.com/apis/common/v3/search?query=${encodeURIComponent(query)}&limit=${limit}&type=player`;
         const response = await fetch(url);
         if (!response.ok) {
             throw new Error(`ESPN Search API error ${response.status}`);

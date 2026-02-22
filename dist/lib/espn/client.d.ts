@@ -6,7 +6,14 @@ export declare class ESPNClient {
     getOdds(leagueKey: string, eventId: string): Promise<ESPNOddsDetail[]>;
     getPlayerOverview(leagueKey: string, playerId: string): Promise<unknown>;
     getPlayerGamelog(leagueKey: string, playerId: string, season?: number): Promise<unknown>;
-    searchPlayers(query: string, limit?: number): Promise<unknown>;
+    searchPlayers(query: string, limit?: number): Promise<{
+        items: {
+            id: string;
+            displayName: string;
+            sport?: string;
+            league?: string;
+        }[];
+    }>;
     getTeams(leagueKey: string): Promise<unknown>;
     getStandings(leagueKey: string): Promise<unknown>;
     getNews(leagueKey: string, limit?: number): Promise<unknown>;

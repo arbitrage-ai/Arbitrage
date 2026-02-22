@@ -205,8 +205,53 @@ export function extractSearchTerms(text: string): string {
 }
 
 /**
- * Phase 2: Search-based matching. For each Kalshi market, search Polymarket
- * for matching markets using text search. Much more reliable than fuzzy-only.
+ * Match a single Kalshi market against Polymarket markets by score.
+ */
+function matchOneAgainstPoly(
+  km: KalshiMarket,
+  polyMarkets: PolymarketMarket[],
+  threshold: number,
+): MatchedMarket | null {
+  const kmText = `${km.title} ${km.subtitle}`;
+  let bestScore = 0;
+  let bestPm: PolymarketMarket | null = null;
+
+  for (const pm of polyMarkets) {
+    if (!pm.question) continue;
+    if (pm.closed === true || (pm as { active?: boolean }).active === false) continue;
+    const polyText = `${(pm as { eventTitle?: string }).eventTitle || ''} ${pm.question}`.trim();
+    const score = computeScore(kmText, polyText);
+    if (score > bestScore) {
+      bestScore = score;
+      bestPm = pm;
+    }
+  }
+
+  if (bestScore >= threshold && bestPm) {
+    const { yesPrice, noPrice, tokenIds } = parsePolyPrices(bestPm);
+    if (yesPrice === 0 && noPrice === 0) return null;
+    return {
+      kalshiTicker: km.ticker,
+      kalshiQuestion: kmText.trim(),
+      kalshiYesPrice: kalshiCentsToDecimal(km.yes_ask),
+      kalshiNoPrice: kalshiCentsToDecimal(km.no_ask),
+      kalshiYesBid: kalshiCentsToDecimal(km.yes_bid),
+      kalshiYesAsk: kalshiCentsToDecimal(km.yes_ask),
+      polymarketSlug: bestPm.slug,
+      polymarketQuestion: bestPm.question,
+      polymarketYesPrice: yesPrice,
+      polymarketNoPrice: noPrice,
+      polymarketTokenIds: tokenIds,
+      matchConfidence: bestScore,
+      matchMethod: 'search',
+    };
+  }
+  return null;
+}
+
+/**
+ * Phase 2: Search-based matching. Tries Polymarket searchText per market;
+ * when it returns 422, falls back to scoring against pre-fetched polyMarkets.
  */
 export async function searchBasedMatch(
   kalshiMarkets: KalshiMarket[],
@@ -215,73 +260,52 @@ export async function searchBasedMatch(
   threshold = 0.30,
   batchSize = 5,
   maxSearches = 25,
+  polyMarketsFallback?: PolymarketMarket[],
+  usedPolyIds?: Set<string>,
 ): Promise<MatchedMarket[]> {
   const results: MatchedMarket[] = [];
   const unmatched = kalshiMarkets.filter((km) => !alreadyMatchedTickers.has(km.ticker));
   const toSearch = unmatched.slice(0, maxSearches);
+  const usedIds = new Set(usedPolyIds);
 
   for (let i = 0; i < toSearch.length; i += batchSize) {
     const batch = toSearch.slice(i, i + batchSize);
     const promises = batch.map(async (km): Promise<MatchedMarket | null> => {
       const terms = extractSearchTerms(`${km.title} ${km.subtitle}`);
-      if (!terms) return null;
 
       try {
-        const searchResults = await polyClient.searchText(terms);
-        if (!Array.isArray(searchResults) || searchResults.length === 0) return null;
-
-        // Extract markets from search results (could be events with nested markets, or flat markets)
-        const polyMarkets: PolymarketMarket[] = [];
-        for (const item of searchResults) {
-          const obj = item as Record<string, unknown>;
-          if (Array.isArray(obj.markets)) {
-            polyMarkets.push(...(obj.markets as PolymarketMarket[]));
-          }
-          if (typeof obj.question === 'string') {
-            polyMarkets.push(obj as unknown as PolymarketMarket);
-          }
-        }
-
-        if (polyMarkets.length === 0) return null;
-
-        const kmText = `${km.title} ${km.subtitle}`;
-        let bestScore = 0;
-        let bestPm: PolymarketMarket | null = null;
-
-        for (const pm of polyMarkets) {
-          if (!pm.question || !pm.active || pm.closed) continue;
-          const score = computeScore(kmText, pm.question);
-          if (score > bestScore) {
-            bestScore = score;
-            bestPm = pm;
+        if (terms) {
+          const searchResults = await polyClient.searchText(terms);
+          if (Array.isArray(searchResults) && searchResults.length > 0) {
+            const polyMarkets: PolymarketMarket[] = [];
+            for (const item of searchResults) {
+              const obj = item as Record<string, unknown>;
+              if (Array.isArray(obj.markets)) {
+                polyMarkets.push(...(obj.markets as PolymarketMarket[]));
+              }
+              if (typeof obj.question === 'string') {
+                polyMarkets.push(obj as unknown as PolymarketMarket);
+              }
+            }
+            if (polyMarkets.length > 0) {
+              const m = matchOneAgainstPoly(km, polyMarkets, threshold);
+              if (m) return m;
+            }
           }
         }
+      } catch { /* searchText often returns 422; use fallback */ }
 
-        if (bestScore >= threshold && bestPm) {
-          const { yesPrice, noPrice, tokenIds } = parsePolyPrices(bestPm);
-          if (yesPrice === 0 && noPrice === 0) return null;
-
-          return {
-            kalshiTicker: km.ticker,
-            kalshiQuestion: kmText.trim(),
-            kalshiYesPrice: kalshiCentsToDecimal(km.yes_ask),
-            kalshiNoPrice: kalshiCentsToDecimal(km.no_ask),
-            kalshiYesBid: kalshiCentsToDecimal(km.yes_bid),
-            kalshiYesAsk: kalshiCentsToDecimal(km.yes_ask),
-            polymarketSlug: bestPm.slug,
-            polymarketQuestion: bestPm.question,
-            polymarketYesPrice: yesPrice,
-            polymarketNoPrice: noPrice,
-            polymarketTokenIds: tokenIds,
-            matchConfidence: bestScore,
-            matchMethod: 'search',
-          };
+      // Fallback: score against pre-fetched polyMarkets (exclude already-used)
+      if (polyMarketsFallback && polyMarketsFallback.length > 0) {
+        const usable = polyMarketsFallback.filter((pm) => !usedIds.has(pm.id));
+        const m = matchOneAgainstPoly(km, usable, threshold);
+        if (m) {
+          const pm = usable.find((p) => p.slug === m.polymarketSlug || p.question === m.polymarketQuestion);
+          if (pm) usedIds.add(pm.id);
+          return m;
         }
-
-        return null;
-      } catch {
-        return null;
       }
+      return null;
     });
 
     const batchResults = await Promise.all(promises);

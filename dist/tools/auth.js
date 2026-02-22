@@ -30,7 +30,9 @@ async function resolveKalshiPrivateKey(input) {
 export function registerAuthTools(server) {
     server.tool({
         name: 'kalshi_login',
-        description: 'Authenticate with Kalshi using your API key and RSA private key. Get your API key from kalshi.com → Settings → API Keys.',
+        description: 'Authenticate with Kalshi. Required before scan_arbitrage, quick_arb, place_order (Kalshi), or any Kalshi-specific data. ' +
+            'WHEN: auth_status shows Kalshi not authenticated and user wants to trade or scan arbitrage. ' +
+            'Credentials: API key ID + RSA private key (PEM format or file path). Get from kalshi.com → Settings → API Keys.',
         schema: z.object({
             api_key_id: z
                 .string()
@@ -63,7 +65,9 @@ export function registerAuthTools(server) {
     });
     server.tool({
         name: 'polymarket_login_with_api_key',
-        description: 'Authenticate with Polymarket using existing API credentials (api_key/secret/passphrase) plus wallet private key.',
+        description: 'Authenticate with Polymarket. Required before place_order (Polymarket), quick_arb execution, or fetching Polymarket positions/balance. ' +
+            'WHEN: auth_status shows Polymarket not authenticated and user wants to trade. ' +
+            'NOTE: Polymarket market data (search, prices) works WITHOUT auth. Auth is only needed for trading and portfolio.',
         schema: z.object({
             private_key: z
                 .string()
@@ -112,7 +116,9 @@ export function registerAuthTools(server) {
     });
     server.tool({
         name: 'auth_status',
-        description: 'Check which prediction market platforms are currently authenticated.',
+        description: 'Check authentication status and balances for all platforms. ' +
+            'WHEN: Before any tool that requires auth (scan_arbitrage, place_order, quick_arb, portfolio tools), or when user asks "am I logged in" / "what accounts do I have". ' +
+            'THEN: If not authenticated, guide user to kalshi_login or polymarket_login_with_api_key.',
         schema: z.object({}),
     }, async (_params, ctx) => {
         const state = getSession(getSessionId(ctx));
@@ -138,14 +144,39 @@ export function registerAuthTools(server) {
             result.kalshi = { authenticated: false };
         }
         if (state.polymarket) {
-            result.polymarket = {
-                authenticated: true,
-                address: state.polymarket.address,
-            };
+            try {
+                const { usdc, usdcNative } = await state.polymarket.client.getUSDCBalance();
+                const total = usdc + usdcNative;
+                result.polymarket = {
+                    authenticated: true,
+                    address: state.polymarket.address,
+                    balance: formatDollars(total),
+                };
+            }
+            catch {
+                result.polymarket = {
+                    authenticated: true,
+                    address: state.polymarket.address,
+                    balance: 'unable to fetch',
+                };
+            }
         }
         else {
             result.polymarket = { authenticated: false };
         }
-        return object(result);
+        const nextSteps = [];
+        if (!state.kalshi) {
+            nextSteps.push({ tool: 'kalshi_login', reason: 'Authenticate Kalshi to enable arbitrage scanning and trading' });
+        }
+        if (!state.polymarket) {
+            nextSteps.push({ tool: 'polymarket_login_with_api_key', reason: 'Authenticate Polymarket to enable trading (market data works without auth)' });
+        }
+        if (state.kalshi) {
+            nextSteps.push({ tool: 'scan_arbitrage', reason: 'Kalshi authenticated — cross-platform arbitrage scanning available' });
+        }
+        if (state.kalshi || state.polymarket) {
+            nextSteps.push({ tool: 'portfolio_summary', reason: 'View portfolio overview across authenticated platforms' });
+        }
+        return object({ ...result, next_steps: nextSteps });
     });
 }

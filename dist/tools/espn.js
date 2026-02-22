@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { text, error, object, markdown } from 'mcp-use/server';
+import { text, error, object } from 'mcp-use/server';
 import { ESPNClient } from '../lib/espn/client.js';
 import { moneylineToImpliedProb, removeVig, formatPercent, } from '../lib/utils/normalize.js';
 const espn = new ESPNClient();
@@ -21,7 +21,10 @@ const leagueEnum = z.enum([
 export function registerESPNTools(server) {
     server.tool({
         name: 'live_scores',
-        description: 'Get live scores and game status from ESPN for any sport/league. No authentication needed.',
+        description: 'Get live scores, game status, and schedule from ESPN. No auth needed. ' +
+            'WHEN: User asks about scores, games today, who is playing, or mentions any sports league. ' +
+            'THEN: Proactively call suggest_markets or search_markets for related prediction markets. ' +
+            'For live games, also call espn_odds(event_id) to compare sportsbook lines with market prices.',
         schema: z.object({
             league: leagueEnum.describe('The league to get scores for (nfl, nba, mlb, nhl, ncaaf, ncaab, etc.)'),
             date: z
@@ -74,7 +77,18 @@ export function registerESPNTools(server) {
                 }
                 md += '\n';
             }
-            return markdown(md);
+            const liveGames = games.filter((g) => g.status === 'in');
+            const upcomingGames = games.filter((g) => g.status === 'pre');
+            const nextSteps = [];
+            if (liveGames.length > 0 || upcomingGames.length > 0) {
+                nextSteps.push({ tool: 'suggest_markets', params: { topic: league }, reason: 'Show tradeable prediction markets for these games' });
+                nextSteps.push({ tool: 'scan_arbitrage', params: { category: league }, reason: 'Live/upcoming games often have cross-platform price discrepancies' });
+            }
+            if (liveGames.length > 0) {
+                const g = liveGames[0];
+                nextSteps.push({ tool: 'espn_odds', params: { league, event_id: g.event_id }, reason: 'Compare live sportsbook odds with prediction market prices' });
+            }
+            return object({ league, date: dateStr, games, next_steps: nextSteps, markdown: md });
         }
         catch (e) {
             return error(`ESPN API error: ${e instanceof Error ? e.message : String(e)}`);
@@ -82,7 +96,9 @@ export function registerESPNTools(server) {
     });
     server.tool({
         name: 'player_stats',
-        description: 'Get player statistics, game log, and overview from ESPN. Search by player name.',
+        description: 'Get player statistics and game log from ESPN by name. ' +
+            'WHEN: User asks about a player, their stats, recent performance, or injury status. ' +
+            'THEN: If user expresses betting intent, search_markets for player prop markets.',
         schema: z.object({
             player_name: z
                 .string()
@@ -93,25 +109,16 @@ export function registerESPNTools(server) {
         }),
     }, async ({ player_name, league }) => {
         try {
-            // Search for the player first
-            const searchResults = (await espn.searchPlayers(player_name));
-            // Find athlete in results
+            const searchResults = await espn.searchPlayers(player_name);
             let playerId = null;
-            if (searchResults.results) {
-                for (const section of searchResults.results) {
-                    if (section.athletes) {
-                        const match = section.athletes.find((a) => a.displayName
-                            .toLowerCase()
-                            .includes(player_name.toLowerCase()) ||
-                            player_name
-                                .toLowerCase()
-                                .includes(a.displayName.toLowerCase()));
-                        if (match) {
-                            playerId = match.id;
-                            break;
-                        }
-                    }
-                }
+            if (searchResults.items && searchResults.items.length > 0) {
+                const match = searchResults.items.find((item) => item.displayName
+                    ?.toLowerCase()
+                    .includes(player_name.toLowerCase()) ||
+                    player_name
+                        .toLowerCase()
+                        .includes(item.displayName?.toLowerCase() ?? ''));
+                playerId = match?.id ?? searchResults.items[0].id ?? null;
             }
             if (!playerId) {
                 return text(`Could not find player "${player_name}" on ESPN. Try a more specific name.`);
@@ -130,7 +137,9 @@ export function registerESPNTools(server) {
     });
     server.tool({
         name: 'game_summary',
-        description: 'Get detailed game summary including box score, play-by-play, leaders, and situation from ESPN.',
+        description: 'Get detailed game summary: box score, play-by-play, leaders, situation. ' +
+            'WHEN: User asks for details on a specific game (box score, who scored, game flow). ' +
+            'REQUIRES: event_id from live_scores results.',
         schema: z.object({
             league: leagueEnum.describe('The league the game is in'),
             event_id: z
@@ -148,7 +157,10 @@ export function registerESPNTools(server) {
     });
     server.tool({
         name: 'espn_odds',
-        description: 'Get betting odds from ESPN for a specific game. Returns moneyline, spread, and over/under from major sportsbooks, converted to implied probabilities for comparison with prediction market prices.',
+        description: 'Get sportsbook odds (moneyline, spread, O/U) with implied probabilities. ' +
+            'WHEN: Comparing prediction market prices to sportsbook lines for edge detection, or user asks about odds/lines. ' +
+            'REQUIRES: event_id from live_scores. ' +
+            'THEN: Compare implied_probabilities output with prediction market prices from search_markets to find mispriced markets. Use analyze_edge for a structured comparison.',
         schema: z.object({
             league: leagueEnum.describe('The league the game is in'),
             event_id: z
@@ -186,7 +198,10 @@ export function registerESPNTools(server) {
                 league,
                 event_id,
                 odds: processed,
-                note: 'Compare implied probabilities with prediction market prices to find edge.',
+                next_steps: [
+                    { tool: 'search_markets', params: { query: `${league} game` }, reason: 'Find prediction market prices to compare with these sportsbook odds' },
+                    { tool: 'analyze_edge', reason: 'Structured edge analysis comparing market price vs these implied probabilities' },
+                ],
             });
         }
         catch (e) {

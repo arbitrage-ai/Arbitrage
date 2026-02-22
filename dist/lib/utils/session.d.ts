@@ -1,8 +1,7 @@
 /**
- * Per-session credential store for multi-user deployed server.
- * Each MCP connection gets its own isolated credential namespace.
- * Users must call kalshi_login / polymarket_login in every new session.
- * Credentials are never shared across sessions and expire after idle TTL.
+ * Credential store for single-user deployed server.
+ * Credentials persist across HMR reloads via globalThis and are shared
+ * across all sessions (handles inspector proxy session ID mismatches).
  */
 import { KalshiClient } from '../kalshi/client.js';
 import { PolymarketClient } from '../polymarket/client.js';
@@ -21,9 +20,9 @@ export interface SessionState {
         client: PolymarketClient;
     };
 }
-export declare function getSession(sessionId: string): SessionState;
-export declare function setKalshiSession(sessionId: string, apiKeyId: string, privateKeyPem: string): void;
-export declare function setPolymarketSession(sessionId: string, privateKey: string, creds: L2Credentials, funderAddress?: string): void;
-export declare function clearKalshiSession(sessionId: string): void;
-export declare function clearPolymarketSession(sessionId: string): void;
-export declare function clearSession(sessionId: string): void;
+export declare function getSession(_sessionId: string): SessionState;
+export declare function setKalshiSession(_sessionId: string, apiKeyId: string, privateKeyPem: string): void;
+export declare function setPolymarketSession(_sessionId: string, privateKey: string, creds: L2Credentials, funderAddress?: string): void;
+export declare function clearKalshiSession(_sessionId: string): void;
+export declare function clearPolymarketSession(_sessionId: string): void;
+export declare function clearSession(_sessionId: string): void;

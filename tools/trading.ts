@@ -14,7 +14,11 @@ export function registerTradingTools(server: McpServerInstance) {
     {
       name: 'place_order',
       description:
-        'Place a buy or sell order on Kalshi or Polymarket. Supports any quantity — from 1 to 1000+ contracts. Set price to 0 for auto-pricing at the current best ask (instant fill). For large orders, the tool checks orderbook depth and warns if liquidity is thin.',
+        'Place a buy or sell order on Kalshi or Polymarket. ' +
+        'WHEN: User wants to trade a specific market after reviewing prices/analysis. ' +
+        'REQUIRES: Authentication on the target platform. Market ID from get_market or search_markets results. ' +
+        'BEFORE: Confirm the market and price with the user. Use get_orderbook for large orders (>10 contracts) to check depth. ' +
+        'Set price=0 for auto-pricing at best ask (instant fill). Supports 1 to 1000+ contracts.',
       schema: z.object({
         platform: z
           .enum(['kalshi', 'polymarket'])
@@ -180,7 +184,9 @@ export function registerTradingTools(server: McpServerInstance) {
   server.tool(
     {
       name: 'cancel_order',
-      description: 'Cancel an open order on Kalshi or Polymarket.',
+      description:
+        'Cancel an open order. WHEN: User wants to cancel, or an order is unfilled and conditions have changed. ' +
+        'REQUIRES: order_id from place_order or get_positions results.',
       schema: z.object({
         platform: z
           .enum(['kalshi', 'polymarket'])

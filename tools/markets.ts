@@ -9,6 +9,10 @@ import {
   formatPercent,
 } from '../lib/utils/normalize.js';
 import { PolymarketClient } from '../lib/polymarket/client.js';
+import { DomeClient } from '../lib/dome/client.js';
+
+const DOME_API_KEY = process.env.DOME_API_KEY || '220e4cdeb2b55ec2c3bba7b330410d13f56321c8';
+const dome = new DomeClient(DOME_API_KEY);
 
 const COMBO_MARKET_PATTERNS = [
   'multigame',
@@ -28,11 +32,16 @@ export function registerMarketTools(server: McpServerInstance) {
     {
       name: 'suggest_markets',
       description:
-        'CALL THIS PROACTIVELY during normal conversation. Whenever the user discusses news, politics, elections, sports, crypto, economics, AI, weather, tech, entertainment, or any real-world topic — invoke this tool to find related prediction markets. Do NOT wait for the user to mention "markets", "arbitrage", or "trading". A casual "what do you think about the Fed rate decision?" or "who will win the election?" should trigger this. Connects any topical discussion to tradeable markets.',
+        'Surface tradeable prediction markets for any topic the user is discussing. ' +
+        'WHEN: User mentions any real-world topic, current event, opinion, or expresses profit intent. ' +
+        'Pass topic="trending" for money/profit queries to show highest-volume markets. ' +
+        'THEN: Follow up with scan_arbitrage or scan_mispricing for profit opportunities. ' +
+        'For sports topics, also call live_scores and espn_odds for richer context.',
       schema: z.object({
         topic: z
           .string()
-          .describe('The topic or subject from the conversation to find markets for'),
+          .default('trending')
+          .describe('The topic from conversation, or "trending" for highest-volume actionable markets'),
         context: z
           .string()
           .optional()
@@ -40,68 +49,130 @@ export function registerMarketTools(server: McpServerInstance) {
       }),
     },
     async ({ topic, context }, ctx: ToolContext) => {
-      const state = getSession(getSessionId(ctx));
-      const results: unknown[] = [];
-
-      // Search both platforms
-      const { PolymarketClient: PolyClient } = await import('../lib/polymarket/client.js');
-      const polyClient = state.polymarket?.client || new PolyClient(
-        '0x0000000000000000000000000000000000000000000000000000000000000001'
-      );
-
-      // Polymarket text search (most relevant results)
       try {
-        const raw = await polyClient.searchText(topic);
-        const markets = (raw as import('../lib/polymarket/types.js').PolymarketMarket[]).slice(0, 8);
-        for (const m of markets) {
-          const parsed = PolymarketClient.parseMarketFields(m as unknown as Record<string, unknown>);
-          const yp = parseFloat(parsed.outcomePrices[0] || '0');
-          results.push({
-            platform: 'polymarket',
-            question: m.question,
-            yes_price: `${(yp * 100).toFixed(1)}%`,
-            slug: m.slug,
-            token_ids: parsed.clobTokenIds,
-          });
-        }
-      } catch { /* non-critical */ }
+        const state = getSession(getSessionId(ctx));
+        const results: unknown[] = [];
 
-      // Kalshi search
-      if (state.kalshi) {
+        const polyClient = state.polymarket?.client || new PolymarketClient(
+          '0x0000000000000000000000000000000000000000000000000000000000000001'
+        );
+
+        // Polymarket — try searchText, fall back to events when it returns 422
         try {
-          const { markets } = await state.kalshi.client.getMarkets({
-            status: 'open', limit: 50,
-          });
-          const topicLower = topic.toLowerCase();
-          const keywords = topicLower.split(/\s+/).filter((w) => w.length > 2);
-          const matched = markets.filter((m) => {
-            const text = `${m.title} ${m.subtitle || ''} ${m.event_ticker}`.toLowerCase();
-            return keywords.some((kw) => text.includes(kw));
-          }).slice(0, 8);
-          for (const m of matched) {
+          let markets: import('../lib/polymarket/types.js').PolymarketMarket[] = [];
+          try {
+            const raw = await polyClient.searchText(topic);
+            markets = Array.isArray(raw) ? (raw as import('../lib/polymarket/types.js').PolymarketMarket[]) : [];
+          } catch {
+            const events = await polyClient.searchEvents({ active: true, closed: false, limit: 30, order: 'volume24hr', ascending: false });
+            for (const ev of events) {
+              if (Array.isArray(ev.markets)) markets.push(...ev.markets);
+            }
+            const kw = (topic || '').toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+            if (kw.length > 0 && topic !== 'trending') {
+              markets = markets.filter((m) => {
+                const t = `${m.question || ''} ${m.slug || ''}`.toLowerCase();
+                return kw.some((w) => t.includes(w));
+              });
+            }
+          }
+
+          // Filter out closed/inactive markets
+          markets = markets.filter((m) => !m.closed && m.active !== false);
+
+          // Deduplicate: pick one (highest-volume) market per event.
+          // Group by normalized question pattern (strip specific names/dates).
+          const eventBuckets = new Map<string, typeof markets[0]>();
+          for (const m of markets) {
+            const q = (m.question || m.slug || '').toLowerCase();
+            const key = q
+              .replace(/\b(will|the|a|an|in|on|by|of|for|to|as|be)\b/g, '')
+              .replace(/\b\d{4}\b/g, '')
+              .replace(/\b(january|february|march|april|may|june|july|august|september|october|november|december)\b/g, '')
+              .replace(/\b\d{1,2}(st|nd|rd|th)?\b/g, '')
+              .replace(/\b[A-Z][a-z]+\b/gi, (w) => w.length > 4 ? '' : w)
+              .replace(/[^a-z]+/g, '-')
+              .replace(/-+/g, '-')
+              .slice(0, 30);
+            const existing = eventBuckets.get(key);
+            const vol = Number(m.volume_24hr || m.volume24hr || 0);
+            if (!existing || vol > Number((existing as any).volume_24hr || (existing as any).volume24hr || 0)) {
+              eventBuckets.set(key, m);
+            }
+          }
+          const finalMarkets = [...eventBuckets.values()]
+            .sort((a, b) => Number(b.volume_24hr || b.volume24hr || 0) - Number(a.volume_24hr || a.volume24hr || 0))
+            .slice(0, 8);
+
+          for (const m of finalMarkets) {
+            const parsed = PolymarketClient.parseMarketFields(m as unknown as Record<string, unknown>);
+            const yp = parseFloat(parsed.outcomePrices[0] || '0');
             results.push({
-              platform: 'kalshi',
-              question: `${m.title} ${m.subtitle || ''}`.trim(),
-              yes_price: `${m.yes_ask}¢`,
-              ticker: m.ticker,
+              platform: 'polymarket',
+              question: m.question,
+              yes_price: `${(yp * 100).toFixed(1)}%`,
+              volume_24h: m.volume_24hr || m.volume24hr || 0,
+              liquidity: m.liquidity || '0',
+              slug: m.slug,
+              token_ids: parsed.clobTokenIds,
             });
           }
         } catch { /* non-critical */ }
-      }
 
-      if (results.length === 0) {
-        return text(`No prediction markets found related to "${topic}". This topic may not have active markets right now.`);
-      }
+        // Kalshi search via Dome API (text search, works without auth)
+        try {
+          const searchTerm = (!topic || topic === 'trending') ? undefined : topic;
+          const { markets: kalshiResults } = await dome.searchKalshiMarkets({
+            search: searchTerm,
+            status: 'open',
+            limit: 8,
+            min_volume: 1000,
+          });
+          for (const m of kalshiResults) {
+            if (isLikelyComboMarket(m.market_ticker, m.title)) continue;
+            results.push({
+              platform: 'kalshi',
+              question: m.title,
+              yes_price: `${m.last_price}¢`,
+              volume_24h: m.volume_24h || 0,
+              ticker: m.market_ticker,
+            });
+          }
+        } catch { /* non-critical */ }
 
-      let md = `## Markets Related to: ${topic}\n\n`;
-      if (context) md += `*Context: ${context}*\n\n`;
-      for (const r of results) {
-        const m = r as Record<string, unknown>;
-        md += `- **${m.question}** (${m.platform}) — ${m.yes_price}\n`;
-      }
-      md += `\n*Use \`search_markets\` for more details, or \`scan_arbitrage\` to find profit opportunities.*`;
+        if (results.length === 0) {
+          return object({
+            topic,
+            markets: [],
+            count: 0,
+            next_steps: [
+              { tool: 'scan_arbitrage', reason: 'No markets for this topic — scan all categories for profit opportunities instead' },
+              { tool: 'search_markets', params: { query: topic }, reason: 'Try a more specific search query' },
+            ],
+          });
+        }
 
-      return object({ topic, markets: results, count: results.length, markdown: md });
+        const hasBothPlatforms = new Set((results as Record<string, unknown>[]).map((r) => r.platform)).size > 1;
+
+        let md = `## Markets Related to: ${topic}\n\n`;
+        if (context) md += `*Context: ${context}*\n\n`;
+        for (const r of results) {
+          const m = r as Record<string, unknown>;
+          md += `- **${m.question}** (${m.platform}) — YES ${m.yes_price}`;
+          if (m.volume_24h) md += ` | 24h vol: $${Number(m.volume_24h).toLocaleString()}`;
+          md += `\n`;
+        }
+
+        const nextSteps: { tool: string; params?: Record<string, unknown>; reason: string }[] = [];
+        if (hasBothPlatforms) {
+          nextSteps.push({ tool: 'scan_arbitrage', params: { category: 'all' }, reason: 'Markets on both platforms — check for cross-platform arbitrage' });
+        }
+        nextSteps.push({ tool: 'scan_mispricing', reason: 'Check multi-outcome events for mispricing' });
+
+        return object({ topic, markets: results, count: results.length, next_steps: nextSteps, markdown: md });
+      } catch (e: unknown) {
+        return error(`suggest_markets failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   );
 
@@ -109,7 +180,10 @@ export function registerMarketTools(server: McpServerInstance) {
     {
       name: 'search_markets',
       description:
-        'Search for prediction markets on ANY topic. INVOKE PROACTIVELY when the user discusses news, politics, elections, sports, crypto, economics, AI, weather, tech, or any real-world event — even if they never say "markets" or "trading". Returns live tradeable markets with current prices on Kalshi and Polymarket.',
+        'Search for specific prediction markets by query string. ' +
+        'WHEN: User mentions a specific event, matchup, or question they want to bet on (e.g. "Lakers vs Celtics", "Will Bitcoin hit $100K"). ' +
+        'USE suggest_markets INSTEAD when the topic is broad/conversational. Use search_markets when the user has a specific query. ' +
+        'THEN: Use get_market for details on a result, or get_orderbook to check liquidity before trading.',
       schema: z.object({
         query: z
           .string()
@@ -133,51 +207,32 @@ export function registerMarketTools(server: McpServerInstance) {
       }),
     },
     async ({ query, platform, limit, include_combo }, ctx: ToolContext) => {
-      const state = getSession(getSessionId(ctx));
-      const results: unknown[] = [];
-      const queryLower = query.toLowerCase();
+      try {
+        const state = getSession(getSessionId(ctx));
+        const results: unknown[] = [];
+        const queryLower = (query || '').toLowerCase();
 
-      // Search Kalshi
-      if (platform === 'kalshi' || platform === 'both') {
-        if (state.kalshi) {
+        // Search Kalshi via Dome API (text search, no auth needed)
+        if (platform === 'kalshi' || platform === 'both') {
           try {
-            const { markets } = await state.kalshi.client.getMarkets({
+            const { markets: kalshiMarkets } = await dome.searchKalshiMarkets({
+              search: query,
               status: 'open',
-              limit: Math.min(limit * 3, 100), // Fetch more to filter
+              limit: Math.min(limit, 20),
             });
-
-            const matched = markets
-              .filter(
-                (m) =>
-                  m.title.toLowerCase().includes(queryLower) ||
-                  m.event_ticker.toLowerCase().includes(queryLower) ||
-                  (m.subtitle || '').toLowerCase().includes(queryLower)
-              )
-              .filter(
-                (m) =>
-                  include_combo ||
-                  !isLikelyComboMarket(
-                    m.ticker,
-                    m.event_ticker,
-                    m.title,
-                    m.subtitle
-                  )
-              )
-              .slice(0, limit);
-            for (const m of matched) {
+            for (const m of kalshiMarkets) {
+              if (!include_combo && isLikelyComboMarket(m.market_ticker, m.event_ticker, m.title)) continue;
               results.push({
                 platform: 'kalshi',
-                ticker: m.ticker,
+                ticker: m.market_ticker,
                 event: m.event_ticker,
-                title: m.title,
-                subtitle: m.subtitle,
-                yes_price: formatPercent(kalshiCentsToDecimal(m.yes_bid)),
-                no_price: formatPercent(kalshiCentsToDecimal(m.no_bid)),
-                yes_bid: m.yes_bid,
-                no_bid: m.no_bid,
+                question: m.title,
+                yes_price: formatPercent(m.last_price / 100),
+                no_price: formatPercent(1 - m.last_price / 100),
+                last_price: m.last_price,
                 volume: m.volume,
+                volume_24h: m.volume_24h,
                 status: m.status,
-                close_time: m.close_time,
               });
             }
           } catch (e: unknown) {
@@ -186,85 +241,112 @@ export function registerMarketTools(server: McpServerInstance) {
               error: e instanceof Error ? e.message : String(e),
             });
           }
-        } else {
-          // Search Kalshi without auth (public market data)
-          results.push({
-            platform: 'kalshi',
-            note: 'Not authenticated. Authenticate with kalshi_login for full market access.',
-          });
         }
-      }
 
-      // Search Polymarket (Gamma API - no auth needed)
-      if (platform === 'polymarket' || platform === 'both') {
-        try {
-          const client =
-            state.polymarket?.client ||
-            new PolymarketClient(
-              '0x0000000000000000000000000000000000000000000000000000000000000001'
-            );
-
-          // Use text search for better results, then fall back to keyword filter
-          const rawSearch = await client.searchText(query);
-          let polyMarkets = (rawSearch as import('../lib/polymarket/types.js').PolymarketMarket[]).slice(0, limit * 2);
-          if (polyMarkets.length === 0) {
-            const allMarkets = await client.searchMarkets({
-              active: true, closed: false, limit: Math.min(limit * 3, 100),
+        // Search Polymarket via Dome API (text search) with Gamma fallback
+        if (platform === 'polymarket' || platform === 'both') {
+          try {
+            // Primary: Dome API search
+            const { markets: domeResults } = await dome.searchPolymarketMarkets({
+              search: query,
+              status: 'open',
+              limit: Math.min(limit, 20),
             });
-            polyMarkets = allMarkets.filter(
-              (m) =>
-                m.question.toLowerCase().includes(queryLower) ||
-                m.slug.toLowerCase().includes(queryLower)
-            );
-          }
 
-          const matched = polyMarkets
-            .filter(
-              (m) =>
-                include_combo ||
-                !isLikelyComboMarket(m.slug, m.question, m.description)
-            )
-            .slice(0, limit);
+            if (domeResults.length > 0) {
+              for (const m of domeResults) {
+                if (!include_combo && isLikelyComboMarket(m.market_slug, m.title)) continue;
+                const yesPrice = m.side_a ? 0 : 0;
+                results.push({
+                  platform: 'polymarket',
+                  slug: m.market_slug,
+                  event_slug: m.event_slug,
+                  question: m.title,
+                  volume_total: m.volume_total,
+                  volume_1_week: m.volume_1_week,
+                  status: m.status,
+                  side_a: m.side_a,
+                  side_b: m.side_b,
+                  tags: m.tags,
+                });
+              }
+            } else {
+              // Fallback: Gamma API search
+              const client =
+                state.polymarket?.client ||
+                new PolymarketClient(
+                  '0x0000000000000000000000000000000000000000000000000000000000000001'
+                );
 
-          for (const m of matched) {
-            const parsed = PolymarketClient.parseMarketFields(m as unknown as Record<string, unknown>);
-            const yesPrice = parseFloat(parsed.outcomePrices[0] || '0');
-            const noPrice = parseFloat(parsed.outcomePrices[1] || '0');
+              let polyMarkets: import('../lib/polymarket/types.js').PolymarketMarket[] = [];
+              try {
+                const rawSearch = await client.searchText(query);
+                polyMarkets = Array.isArray(rawSearch) ? (rawSearch as import('../lib/polymarket/types.js').PolymarketMarket[]).slice(0, limit * 2) : [];
+              } catch { /* searchText 422 fallback */ }
+              if (polyMarkets.length === 0) {
+                const events = await client.searchEvents({ active: true, closed: false, limit: 50, order: 'volume24hr', ascending: false });
+                const allMarkets: import('../lib/polymarket/types.js').PolymarketMarket[] = [];
+                for (const ev of events) {
+                  if (Array.isArray(ev.markets)) allMarkets.push(...ev.markets);
+                }
+                const kw = queryLower.split(/\s+/).filter((w) => w.length > 2);
+                polyMarkets = allMarkets.filter((m) => {
+                  const mtext = `${m.question || ''} ${m.slug || ''}`.toLowerCase();
+                  return kw.some((w) => mtext.includes(w));
+                });
+              }
+
+              const matched = polyMarkets
+                .filter((m) => !m.closed && m.active !== false)
+                .filter(
+                  (m) =>
+                    include_combo ||
+                    !isLikelyComboMarket(m.slug, m.question, m.description)
+                )
+                .slice(0, limit);
+
+              for (const m of matched) {
+                const parsed = PolymarketClient.parseMarketFields(m as unknown as Record<string, unknown>);
+                const yesPrice = parseFloat(parsed.outcomePrices[0] || '0');
+                const noPrice = parseFloat(parsed.outcomePrices[1] || '0');
+                results.push({
+                  platform: 'polymarket',
+                  slug: m.slug,
+                  question: m.question,
+                  yes_price: formatPercent(yesPrice),
+                  no_price: formatPercent(noPrice),
+                  yes_decimal: yesPrice,
+                  no_decimal: noPrice,
+                  volume_24h: m.volume_24hr || m.volume24hr,
+                  liquidity: m.liquidity,
+                  end_date: m.end_date || m.endDate,
+                  token_ids: parsed.clobTokenIds,
+                });
+              }
+            }
+          } catch (e: unknown) {
             results.push({
               platform: 'polymarket',
-              id: m.id,
-              slug: m.slug,
-              question: m.question,
-              yes_price: formatPercent(yesPrice),
-              no_price: formatPercent(noPrice),
-              yes_decimal: yesPrice,
-              no_decimal: noPrice,
-              volume_24h: m.volume_24hr || m.volume24hr,
-              liquidity: m.liquidity,
-              end_date: m.end_date || m.endDate,
-              token_ids: parsed.clobTokenIds,
+              error: e instanceof Error ? e.message : String(e),
             });
           }
-        } catch (e: unknown) {
-          results.push({
-            platform: 'polymarket',
-            error: e instanceof Error ? e.message : String(e),
-          });
         }
-      }
 
-      if (results.length === 0) {
-        return text(
-          `No markets found for "${query}". Try a broader search term.`
-        );
-      }
+        if (results.length === 0) {
+          return text(
+            `No markets found for "${query}". Try a broader search term.`
+          );
+        }
 
-      return object({
-        query,
-        include_combo,
-        results,
-        count: results.length,
-      });
+        return object({
+          query,
+          include_combo,
+          results,
+          count: results.length,
+        });
+      } catch (e: unknown) {
+        return error(`search_markets failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   );
 
@@ -272,7 +354,10 @@ export function registerMarketTools(server: McpServerInstance) {
     {
       name: 'get_market',
       description:
-        'Get detailed information about a specific prediction market — prices, volume, liquidity, orderbook spread, token IDs for trading. Works on Kalshi and Polymarket.',
+        'Get detailed info on a specific market (prices, volume, liquidity, token IDs). ' +
+        'WHEN: User asks about a specific market, or you need token IDs / current prices before placing an order. ' +
+        'REQUIRES: A market_id from search_markets or suggest_markets results. ' +
+        'THEN: get_orderbook for depth, analyze_edge for edge analysis, or place_order to trade.',
       schema: z.object({
         platform: z.enum(['kalshi', 'polymarket']),
         market_id: z
@@ -347,7 +432,10 @@ export function registerMarketTools(server: McpServerInstance) {
   server.tool(
     {
       name: 'get_orderbook',
-      description: 'Get orderbook depth (bids and asks) for a specific market. Shows available liquidity at each price level — essential for sizing large orders.',
+      description:
+        'Get orderbook depth (bids/asks) at each price level. ' +
+        'WHEN: Before placing large orders (>10 contracts), or verifying executable prices after scan_mispricing (Polymarket midpoints may differ from ask). ' +
+        'REQUIRES: Market ticker (Kalshi) or token_id (Polymarket) from get_market results.',
       schema: z.object({
         platform: z.enum(['kalshi', 'polymarket']),
         market_id: z
@@ -367,11 +455,11 @@ export function registerMarketTools(server: McpServerInstance) {
           const { orderbook } =
             await state.kalshi.client.getOrderbook(market_id);
 
-          const yesBids = orderbook.yes.map(([price, qty]) => ({
+          const yesBids = (orderbook.yes || []).map(([price, qty]) => ({
             price: kalshiCentsToDecimal(price),
             quantity: qty,
           }));
-          const noBids = orderbook.no.map(([price, qty]) => ({
+          const noBids = (orderbook.no || []).map(([price, qty]) => ({
             price: kalshiCentsToDecimal(price),
             quantity: qty,
           }));
@@ -396,19 +484,27 @@ export function registerMarketTools(server: McpServerInstance) {
         }
       } else {
         const state = getSession(getSessionId(ctx));
-        if (!state.polymarket) {
-          return error(
-            'Not authenticated on Polymarket. Run polymarket_login first.'
-          );
+        // Try auth'd CLOB first, fallback to Dome API (no auth needed)
+        if (state.polymarket) {
+          try {
+            const book =
+              await state.polymarket.client.getOrderbook(market_id);
+            return object({
+              platform: 'polymarket',
+              token_id: market_id,
+              bids: (book.bids || []).slice(0, 10),
+              asks: (book.asks || []).slice(0, 10),
+            });
+          } catch { /* fall through to Dome */ }
         }
         try {
-          const book =
-            await state.polymarket.client.getOrderbook(market_id);
+          const price = await dome.getPolymarketMarketPrice(market_id);
           return object({
             platform: 'polymarket',
             token_id: market_id,
-            bids: book.bids.slice(0, 10),
-            asks: book.asks.slice(0, 10),
+            price: price.price,
+            at_time: price.at_time,
+            note: 'Price from Dome API. For full orderbook depth, authenticate with polymarket_login.',
           });
         } catch (e: unknown) {
           return error(

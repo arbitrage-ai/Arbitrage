@@ -15,7 +15,11 @@ const GAMMA_URL = 'https://gamma-api.polymarket.com';
 const DATA_URL = 'https://data-api.polymarket.com';
 const CHAIN_ID = 137; // Polygon
 
-const POLYGON_RPC = 'https://polygon-rpc.com';
+const POLYGON_RPCS = [
+  'https://polygon-rpc.com',
+  'https://rpc.ankr.com/polygon',
+  'https://polygon-bor-rpc.publicnode.com',
+];
 const USDC_ADDRESS = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC.e on Polygon
 const USDC_NATIVE = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'; // Native USDC on Polygon
 const ERC20_BALANCE_OF = '0x70a08231'; // balanceOf(address) selector
@@ -296,11 +300,12 @@ export class PolymarketClient {
   // ---- On-chain balance ----
 
   async getUSDCBalance(address?: string): Promise<{ usdc: number; usdcNative: number }> {
-    const addr = (address || this.address).toLowerCase().replace('0x', '').padStart(64, '0');
+    const raw = (address || this.address).toLowerCase().replace('0x', '');
+    const paddedAddr = raw.padStart(64, '0'); // 40-char address → 64-char ABI-encoded
 
-    const callBalance = async (token: string): Promise<number> => {
-      const data = `${ERC20_BALANCE_OF}000000000000000000000000${addr}`;
-      const response = await fetch(POLYGON_RPC, {
+    const callBalance = async (token: string, rpcUrl: string): Promise<number> => {
+      const data = `${ERC20_BALANCE_OF}${paddedAddr}`;
+      const response = await fetch(rpcUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -310,15 +315,30 @@ export class PolymarketClient {
           params: [{ to: token, data }, 'latest'],
         }),
       });
-      const json = (await response.json()) as { result?: string; error?: { message: string } };
-      if (json.error) throw new Error(`RPC error: ${json.error.message}`);
+      const json = (await response.json()) as { result?: string; error?: { message?: string; code?: number } };
+      if (json.error) {
+        const msg = json.error.message ?? json.error.code ?? JSON.stringify(json.error);
+        throw new Error(`RPC error: ${msg}`);
+      }
       const raw = BigInt(json.result || '0x0');
       return Number(raw) / 1e6; // USDC has 6 decimals
     };
 
+    const tryRpc = async (token: string): Promise<number> => {
+      let lastErr: Error | null = null;
+      for (const rpc of POLYGON_RPCS) {
+        try {
+          return await callBalance(token, rpc);
+        } catch (e) {
+          lastErr = e instanceof Error ? e : new Error(String(e));
+        }
+      }
+      throw lastErr ?? new Error('All Polygon RPCs failed');
+    };
+
     const [usdc, usdcNative] = await Promise.all([
-      callBalance(USDC_ADDRESS),
-      callBalance(USDC_NATIVE),
+      tryRpc(USDC_ADDRESS),
+      tryRpc(USDC_NATIVE),
     ]);
 
     return { usdc, usdcNative };

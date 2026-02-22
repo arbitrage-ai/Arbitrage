@@ -18,6 +18,11 @@ import { kalshiCentsToDecimal, formatDollars, formatPercent } from '../lib/utils
 import type { KalshiMarket } from '../lib/kalshi/types.js';
 import type { PolymarketMarket } from '../lib/polymarket/types.js';
 import type { PolymarketEvent } from '../lib/polymarket/types.js';
+import { DomeClient } from '../lib/dome/client.js';
+import type { MatchedMarket } from '../lib/arbitrage/matcher.js';
+
+const DOME_API_KEY = process.env.DOME_API_KEY || '220e4cdeb2b55ec2c3bba7b330410d13f56321c8';
+const dome = new DomeClient(DOME_API_KEY);
 
 // ---------------------------------------------------------------------------
 // Category configuration — covers sports, politics, economics, crypto, etc.
@@ -36,10 +41,10 @@ const CATEGORIES: Record<string, CategoryConfig> = {
   nhl:       { kalshiSeries: ['NHL'], polyTags: [899], label: 'NHL' },
   ncaaf:     { kalshiSeries: ['CFB', 'NCAAF'], polyTags: [100351], label: 'NCAAF' },
   ncaab:     { kalshiSeries: ['NCAA', 'NCAAB'], polyTags: [100149, 101178], label: 'NCAAB' },
-  politics:  { kalshiSeries: [], polyTags: [], label: 'Politics' },
-  economics: { kalshiSeries: [], polyTags: [], label: 'Economics' },
-  crypto:    { kalshiSeries: [], polyTags: [], label: 'Crypto' },
-  all:       { kalshiSeries: [], polyTags: [], label: 'All Categories' },
+  politics:  { kalshiSeries: [], polyTags: [2, 188], label: 'Politics' },
+  economics: { kalshiSeries: [], polyTags: [100328, 120], label: 'Economics' },
+  crypto:    { kalshiSeries: [], polyTags: [21], label: 'Crypto' },
+  all:       { kalshiSeries: [], polyTags: [2, 21, 120, 100328, 188, 745, 450], label: 'All Categories' },
 };
 
 const CATEGORY_KEYS = Object.keys(CATEGORIES) as (keyof typeof CATEGORIES)[];
@@ -109,7 +114,7 @@ async function fetchPolymarkets(category: string): Promise<PolymarketMarket[]> {
 
   const add = (markets: PolymarketMarket[]) => {
     for (const m of markets) {
-      if (!seen.has(m.id)) {
+      if (!seen.has(m.id) && !m.closed) {
         seen.add(m.id);
         allMarkets.push(m);
       }
@@ -122,7 +127,12 @@ async function fetchPolymarkets(category: string): Promise<PolymarketMarket[]> {
       const events = await tempClient.searchEvents({ active: true, closed: false, tag_id: tagId, limit: 100 });
       const markets: PolymarketMarket[] = [];
       for (const ev of events) {
-        if (ev.markets) markets.push(...ev.markets);
+        if (Array.isArray(ev.markets)) {
+          for (const m of ev.markets) {
+            (m as PolymarketMarket & { eventTitle?: string }).eventTitle = ev.title;
+            markets.push(m);
+          }
+        }
       }
       return markets;
     } catch { return []; }
@@ -134,11 +144,16 @@ async function fetchPolymarkets(category: string): Promise<PolymarketMarket[]> {
   const fetchByVolume = async (limit: number, offset = 0) => {
     try {
       const events = await tempClient.searchEvents({
-        active: true, closed: false, order: 'volume_24hr', ascending: false, limit, offset,
+        active: true, closed: false, order: 'volume24hr', ascending: false, limit, offset,
       });
       const markets: PolymarketMarket[] = [];
       for (const ev of events) {
-        if (ev.markets) markets.push(...ev.markets);
+        if (Array.isArray(ev.markets)) {
+          for (const m of ev.markets) {
+            (m as PolymarketMarket & { eventTitle?: string }).eventTitle = ev.title;
+            markets.push(m);
+          }
+        }
       }
       return markets;
     } catch { return []; }
@@ -329,7 +344,7 @@ async function scanPolymarketEventMispricing(): Promise<EventMispricing[]> {
   try {
     // Fetch high-volume events with nested markets
     const events = await tempClient.searchEvents({
-      active: true, closed: false, order: 'volume_24hr', ascending: false, limit: 100,
+      active: true, closed: false, order: 'volume24hr', ascending: false, limit: 100,
     });
 
     for (const event of events) {
@@ -395,7 +410,7 @@ async function scanPolymarketEventMispricing(): Promise<EventMispricing[]> {
     // Second page of events
     try {
       const page2 = await tempClient.searchEvents({
-        active: true, closed: false, order: 'volume_24hr', ascending: false, limit: 100, offset: 100,
+        active: true, closed: false, order: 'volume24hr', ascending: false, limit: 100, offset: 100,
       });
       for (const event of page2) {
         if (!event.markets || event.markets.length < 2) continue;
@@ -438,6 +453,70 @@ async function scanPolymarketEventMispricing(): Promise<EventMispricing[]> {
 }
 
 // ---------------------------------------------------------------------------
+// Dome API matching — uses pre-computed cross-platform market pairs
+// ---------------------------------------------------------------------------
+
+async function domeMatchedPairs(
+  kalshiMarkets: KalshiMarket[],
+  polyMarkets: PolymarketMarket[],
+): Promise<MatchedMarket[]> {
+  const results: MatchedMarket[] = [];
+  try {
+    const sportsSlugs = polyMarkets
+      .filter((m) => {
+        const slug = m.slug || '';
+        return /^(nfl|nba|mlb|nhl|ncaa|mls|epl|soccer|tennis|boxing|ufc|mma)-/.test(slug);
+      })
+      .map((m) => m.slug)
+      .slice(0, 20);
+
+    if (sportsSlugs.length === 0) return results;
+
+    const { markets: matchMap } = await dome.getMatchingSportsMarkets({
+      polymarket_slugs: sportsSlugs,
+    });
+
+    const kalshiByTicker = new Map(kalshiMarkets.map((m) => [m.ticker, m]));
+    const polyBySlug = new Map(polyMarkets.map((m) => [m.slug, m]));
+
+    for (const [, platforms] of Object.entries(matchMap)) {
+      const kalshiEntry = platforms.find((p) => p.platform === 'KALSHI');
+      const polyEntry = platforms.find((p) => p.platform === 'POLYMARKET');
+      if (!kalshiEntry?.market_tickers?.length || !polyEntry?.market_slug) continue;
+
+      const polyMkt = polyBySlug.get(polyEntry.market_slug);
+      if (!polyMkt) continue;
+
+      const parsed = PolymarketClient.parseMarketFields(polyMkt as unknown as Record<string, unknown>);
+      const polyYes = parseFloat(parsed.outcomePrices[0] || '0');
+      const polyNo = parseFloat(parsed.outcomePrices[1] || '0');
+
+      for (const kTicker of kalshiEntry.market_tickers) {
+        const kMkt = kalshiByTicker.get(kTicker);
+        if (!kMkt) continue;
+
+        results.push({
+          kalshiTicker: kMkt.ticker,
+          kalshiQuestion: `${kMkt.title} ${kMkt.subtitle || ''}`.trim(),
+          kalshiYesPrice: kalshiCentsToDecimal(kMkt.yes_bid),
+          kalshiNoPrice: kalshiCentsToDecimal(kMkt.no_bid),
+          kalshiYesBid: kMkt.yes_bid,
+          kalshiYesAsk: kMkt.yes_ask,
+          polymarketSlug: polyMkt.slug,
+          polymarketQuestion: polyMkt.question,
+          polymarketYesPrice: polyYes,
+          polymarketNoPrice: polyNo,
+          polymarketTokenIds: parsed.clobTokenIds,
+          matchConfidence: 0.99,
+          matchMethod: 'fuzzy' as const,
+        });
+      }
+    }
+  } catch { /* non-critical */ }
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Tool registration
 // ---------------------------------------------------------------------------
 
@@ -450,7 +529,12 @@ export function registerArbitrageTools(server: McpServerInstance) {
     {
       name: 'scan_arbitrage',
       description:
-        'Scan for prediction market arbitrage. Two strategies: (1) Cross-platform — buy YES on one exchange + NO on the other when combined cost < $1 (payout $1). Uses ASK prices for executable edge. (2) Multi-outcome mispricing — events where outcome prices sum ≠ $1; buy all YES if sum < $1, all NO if sum > $1. Edges shrink after fees and bid/ask spread. Best during volatile periods when one platform lags.',
+        'Scan for cross-platform arbitrage (Kalshi vs Polymarket) and multi-outcome mispricing. ' +
+        'WHEN: User wants to find risk-free profit, asks about arbitrage, or after suggest_markets surfaces interesting markets. ' +
+        'REQUIRES: Kalshi authentication (kalshi_login). Polymarket data is fetched without auth. ' +
+        'HOW: (1) Cross-platform: buy YES on one exchange + NO on other when combined cost < $1. (2) Event mispricing: outcome prices sum ≠ $1. ' +
+        'THEN: quick_arb(dry_run: true) to preview the best trade, or get_orderbook to verify liquidity. ' +
+        'Best during volatile periods when one platform lags in price updates.',
       schema: z.object({
         category: z
           .enum(['nfl', 'nba', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'politics', 'economics', 'crypto', 'all'])
@@ -501,20 +585,34 @@ export function registerArbitrageTools(server: McpServerInstance) {
           return text(`No active Polymarket markets found for category: ${category}.`);
         }
 
-        // Phase 2: Fuzzy matching
-        const fuzzyMatched = matchMarketsAcrossPlatforms(kalshiMarkets, polyMarkets);
+        // Phase 2: Fuzzy matching (threshold 0.30 for broader matching)
+        const fuzzyMatched = matchMarketsAcrossPlatforms(kalshiMarkets, polyMarkets, 0.30);
 
-        // Phase 3: Search-based matching (optional, parallel with fuzzy)
+        // Phase 3: Search-based matching (optional; fallback to polyMarkets when searchText returns 422)
         let searchMatched: Awaited<ReturnType<typeof searchBasedMatch>> = [];
         if (use_search) {
           const alreadyMatched = new Set(fuzzyMatched.map((m) => m.kalshiTicker));
+          const usedPolyIds = new Set(
+            fuzzyMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
+          );
           const polyClient = new PolymarketClient(POLY_DUMMY_KEY);
           searchMatched = await searchBasedMatch(
-            kalshiMarkets, alreadyMatched, polyClient, 0.30, 5, 25,
+            kalshiMarkets, alreadyMatched, polyClient, 0.28, 5, 25, polyMarkets, usedPolyIds,
           );
         }
 
-        const allMatched = [...fuzzyMatched, ...searchMatched];
+        // Phase 3b: Dome API matching for pre-computed cross-platform pairs
+        let domeMatched: MatchedMarket[] = [];
+        try {
+          const alreadyMatchedTickers = new Set([
+            ...fuzzyMatched.map((m) => m.kalshiTicker),
+            ...searchMatched.map((m) => m.kalshiTicker),
+          ]);
+          const raw = await domeMatchedPairs(kalshiMarkets, polyMarkets);
+          domeMatched = raw.filter((m) => !alreadyMatchedTickers.has(m.kalshiTicker));
+        } catch { /* non-critical */ }
+
+        const allMatched = [...fuzzyMatched, ...searchMatched, ...domeMatched];
         const matchMs = Date.now() - t0;
 
         // Don't bail on zero cross-platform matches — event mispricing below still runs
@@ -538,7 +636,7 @@ export function registerArbitrageTools(server: McpServerInstance) {
           const ms = Date.now() - t0;
           let md = `## Arbitrage Scan — ${label}\n\n`;
           md += `Scanned **${kalshiMarkets.length}** Kalshi × **${polyMarkets.length}** Polymarket markets in **${(ms / 1000).toFixed(1)}s**\n`;
-          md += `Matched **${allMatched.length}** cross-platform pairs (${fuzzyMatched.length} fuzzy + ${searchMatched.length} search)\n\n`;
+          md += `Matched **${allMatched.length}** cross-platform pairs (${fuzzyMatched.length} fuzzy + ${searchMatched.length} search + ${domeMatched.length} Dome)\n\n`;
           md += `No arbitrage with edge ≥ ${(min_edge * 100).toFixed(1)}%. Markets are efficiently priced.\n\n`;
           md += `**Try:** Lower \`min_edge\` to 0.001, scan during live games, or check back when prices are moving.`;
           return markdown(md);
@@ -550,7 +648,7 @@ export function registerArbitrageTools(server: McpServerInstance) {
         // Build the output
         let md = `## Cross-Platform Arbitrage Scanner — ${label}\n\n`;
         md += `**Scanned:** ${kalshiMarkets.length} Kalshi × ${polyMarkets.length} Polymarket in **${(totalMs / 1000).toFixed(1)}s**\n`;
-        md += `**Matched:** ${allMatched.length} cross-platform pairs (${fuzzyMatched.length} fuzzy + ${searchMatched.length} search)\n`;
+        md += `**Matched:** ${allMatched.length} cross-platform pairs (${fuzzyMatched.length} fuzzy + ${searchMatched.length} search + ${domeMatched.length} Dome)\n`;
         md += `**Cross-platform arb:** ${opportunities.length} opportunities\n`;
         md += `**Event mispricing:** ${eventFiltered.length} multi-outcome opportunities\n\n`;
 
@@ -572,7 +670,8 @@ export function registerArbitrageTools(server: McpServerInstance) {
           md += `|--:|----------|-------|--------:|--------:|-----------|-----:|\n`;
           for (let i = 0; i < Math.min(eventFiltered.length, 5); i++) {
             const o = eventFiltered[i];
-            const title = o.eventTitle.length > 35 ? o.eventTitle.slice(0, 32) + '...' : o.eventTitle;
+            const rawTitle = o.eventTitle || 'Unknown';
+            const title = rawTitle.length > 35 ? rawTitle.slice(0, 32) + '...' : rawTitle;
             const dir = o.direction === 'buy_all_yes' ? 'Buy ALL Yes' : 'Buy ALL No';
             md += `| ${i + 1} | ${o.platform} | ${title} | ${o.numOutcomes} | ${o.yesSum.toFixed(3)} | ${dir} | ${(o.edge * 100).toFixed(2)}% |\n`;
           }
@@ -637,7 +736,11 @@ export function registerArbitrageTools(server: McpServerInstance) {
     {
       name: 'scan_mispricing',
       description:
-        'Find multi-outcome event mispricing. When an event has N mutually exclusive outcomes, YES prices should sum to $1.00. If sum < $1 → buy all YES for profit. If sum > $1 → buy all NO for profit. Caveat: displayed prices are often midpoints; you must lift the ASK. Real edge = executable ask prices (after fees/slippage) sum favorably. Kalshi uses live ask prices; Polymarket uses midpoints (~2% buffer). Opportunistic, not 24/7.',
+        'Find events where outcome prices don\'t sum to $1 (single-platform mispricing). ' +
+        'WHEN: After scan_arbitrage for deeper single-platform analysis, or when user specifically asks about mispricing. ' +
+        'HOW: N mutually exclusive outcomes should sum to $1. If < $1 → buy all YES. If > $1 → buy all NO. ' +
+        'CAVEAT: Polymarket prices are midpoints; verify with get_orderbook before trading. Kalshi uses live ask prices. ' +
+        'THEN: get_orderbook to verify executable prices, then place_order for each outcome.',
       schema: z.object({
         platform: z
           .enum(['kalshi', 'polymarket', 'both'])
@@ -662,101 +765,110 @@ export function registerArbitrageTools(server: McpServerInstance) {
       const t0 = Date.now();
       const allOpps: EventMispricing[] = [];
 
-      // Kalshi scan
-      if ((platform === 'kalshi' || platform === 'both') && state.kalshi) {
-        const kalshiOpps = await scanKalshiEventMispricing(state.kalshi.client);
-        allOpps.push(...kalshiOpps);
-      } else if (platform === 'kalshi' && !state.kalshi) {
-        return error('Kalshi authentication required. Run kalshi_login first.');
-      }
-
-      // Polymarket scan (no auth needed)
-      if (platform === 'polymarket' || platform === 'both') {
-        const polyOpps = await scanPolymarketEventMispricing();
-        allOpps.push(...polyOpps);
-      }
-
-      const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-      const filtered = allOpps.filter((o) => o.edge >= min_edge).sort((a, b) => b.edge - a.edge);
-      const top = filtered.slice(0, max_results);
-
-      if (top.length === 0) {
-        return markdown(
-          `## Event Mispricing Scan — No Opportunities\n\n` +
-          `Scanned multi-outcome events on ${platform} in ${elapsed}s.\n` +
-          `All event outcome sums are within ${(min_edge * 100).toFixed(1)}% of fair value.\n\n` +
-          `**Tips:** Lower \`min_edge\`, or try during volatile periods when prices haven't caught up.`
-        );
-      }
-
-      let md = `## Event Mispricing Scanner — ${top.length} Opportunities Found\n\n`;
-      md += `Scanned in **${elapsed}s** · Min edge: ${(min_edge * 100).toFixed(1)}%\n\n`;
-
-      md += `| # | Platform | Event | Outcomes | YES Sum | Direction | Edge | Profit/$${example_stake} |\n`;
-      md += `|--:|----------|-------|--------:|--------:|-----------|-----:|----------:|\n`;
-
-      for (let i = 0; i < top.length; i++) {
-        const o = top[i];
-        const title = o.eventTitle.length > 35 ? o.eventTitle.slice(0, 32) + '...' : o.eventTitle;
-        const dir = o.direction === 'buy_all_yes' ? 'Buy ALL Yes' : 'Buy ALL No';
-        const profitForStake = o.profitPerDollar * example_stake;
-        md += `| ${i + 1} | ${o.platform} | ${title} | ${o.numOutcomes} | ${o.yesSum.toFixed(3)} | ${dir} | ${(o.edge * 100).toFixed(2)}% | $${profitForStake.toFixed(2)} |\n`;
-      }
-
-      // Detail top 3
-      const detailCount = Math.min(3, top.length);
-      for (let i = 0; i < detailCount; i++) {
-        const o = top[i];
-        md += `\n---\n\n### #${i + 1}  ${o.eventTitle} (${o.platform})\n\n`;
-        md += `**${o.numOutcomes} outcomes** · YES sum: ${o.yesSum.toFixed(4)} · Edge: ${(o.edge * 100).toFixed(2)}%\n\n`;
-        md += `**Strategy:** ${o.direction === 'buy_all_yes' ? 'Buy YES on every outcome' : 'Buy NO on every outcome'}\n`;
-
-        const costPerSet = o.direction === 'buy_all_yes'
-          ? o.markets.reduce((s, m) => s + m.yesPrice, 0)
-          : o.markets.reduce((s, m) => s + m.noPrice, 0);
-        const payout = o.direction === 'buy_all_yes' ? 1.0 : o.numOutcomes - 1;
-        const sets = Math.floor(example_stake / costPerSet);
-
-        if (sets > 0) {
-          md += `\n**Execution** ($${example_stake} stake):\n`;
-          for (const m of o.markets) {
-            const price = o.direction === 'buy_all_yes' ? m.yesPrice : m.noPrice;
-            const side = o.direction === 'buy_all_yes' ? 'YES' : 'NO';
-            md += `- Buy ${sets} ${side} "${m.question.slice(0, 50)}" @ ${(price * 100).toFixed(1)}¢\n`;
-          }
-          const totalCost = sets * costPerSet;
-          const totalPayout = sets * payout;
-          md += `- **Total cost:** ${formatDollars(totalCost)} · **Payout:** ${formatDollars(totalPayout)} · **Profit:** ${formatDollars(totalPayout - totalCost)}\n`;
+      try {
+        // Kalshi scan
+        if ((platform === 'kalshi' || platform === 'both') && state.kalshi) {
+          try {
+            const kalshiOpps = await scanKalshiEventMispricing(state.kalshi.client);
+            allOpps.push(...kalshiOpps);
+          } catch { /* Kalshi mispricing scan non-critical */ }
+        } else if (platform === 'kalshi' && !state.kalshi) {
+          return error('Kalshi authentication required. Run kalshi_login first.');
         }
-      }
 
-      const hasPolymarket = top.some((o) => o.platform === 'polymarket');
-      if (hasPolymarket) {
-        md += `\n⚠️ **Polymarket prices are midpoints.** Use \`get_orderbook\` to verify executable ask prices before trading — the edge may shrink or disappear.\n`;
-      }
+        // Polymarket scan (no auth needed)
+        if (platform === 'polymarket' || platform === 'both') {
+          try {
+            const polyOpps = await scanPolymarketEventMispricing();
+            allOpps.push(...polyOpps);
+          } catch { /* Polymarket mispricing scan non-critical */ }
+        }
 
-      return object({
-        scan_time_s: elapsed,
-        opportunities_found: filtered.length,
-        opportunities: top.map((o) => ({
-          platform: o.platform,
-          event: o.eventTitle,
-          event_id: o.eventTicker,
-          num_outcomes: o.numOutcomes,
-          yes_sum: parseFloat(o.yesSum.toFixed(4)),
-          direction: o.direction,
-          edge_pct: parseFloat((o.edge * 100).toFixed(3)),
-          profit_per_dollar: parseFloat(o.profitPerDollar.toFixed(4)),
-          profit_per_stake: parseFloat((o.profitPerDollar * example_stake).toFixed(2)),
-          markets: o.markets.map((m) => ({
-            id: m.id,
-            question: m.question,
-            yes_price: m.yesPrice,
-            no_price: m.noPrice,
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        const filtered = allOpps.filter((o) => o.edge >= min_edge).sort((a, b) => b.edge - a.edge);
+        const top = filtered.slice(0, max_results);
+
+        if (top.length === 0) {
+          return markdown(
+            `## Event Mispricing Scan — No Opportunities\n\n` +
+            `Scanned multi-outcome events on ${platform} in ${elapsed}s.\n` +
+            `All event outcome sums are within ${(min_edge * 100).toFixed(1)}% of fair value.\n\n` +
+            `**Tips:** Lower \`min_edge\`, or try during volatile periods when prices haven't caught up.`
+          );
+        }
+
+        let md = `## Event Mispricing Scanner — ${top.length} Opportunities Found\n\n`;
+        md += `Scanned in **${elapsed}s** · Min edge: ${(min_edge * 100).toFixed(1)}%\n\n`;
+
+        md += `| # | Platform | Event | Outcomes | YES Sum | Direction | Edge | Profit/$${example_stake} |\n`;
+        md += `|--:|----------|-------|--------:|--------:|-----------|-----:|----------:|\n`;
+
+        for (let i = 0; i < top.length; i++) {
+          const o = top[i];
+          const title = (o.eventTitle || 'Unknown').length > 35 ? (o.eventTitle || 'Unknown').slice(0, 32) + '...' : (o.eventTitle || 'Unknown');
+          const dir = o.direction === 'buy_all_yes' ? 'Buy ALL Yes' : 'Buy ALL No';
+          const profitForStake = o.profitPerDollar * example_stake;
+          md += `| ${i + 1} | ${o.platform} | ${title} | ${o.numOutcomes} | ${o.yesSum.toFixed(3)} | ${dir} | ${(o.edge * 100).toFixed(2)}% | $${profitForStake.toFixed(2)} |\n`;
+        }
+
+        // Detail top 3
+        const detailCount = Math.min(3, top.length);
+        for (let i = 0; i < detailCount; i++) {
+          const o = top[i];
+          const mks = o.markets || [];
+          md += `\n---\n\n### #${i + 1}  ${o.eventTitle || 'Unknown'} (${o.platform})\n\n`;
+          md += `**${o.numOutcomes} outcomes** · YES sum: ${o.yesSum.toFixed(4)} · Edge: ${(o.edge * 100).toFixed(2)}%\n\n`;
+          md += `**Strategy:** ${o.direction === 'buy_all_yes' ? 'Buy YES on every outcome' : 'Buy NO on every outcome'}\n`;
+
+          const costPerSet = o.direction === 'buy_all_yes'
+            ? mks.reduce((s, m) => s + m.yesPrice, 0)
+            : mks.reduce((s, m) => s + m.noPrice, 0);
+          const payout = o.direction === 'buy_all_yes' ? 1.0 : o.numOutcomes - 1;
+          const sets = costPerSet > 0 ? Math.floor(example_stake / costPerSet) : 0;
+
+          if (sets > 0) {
+            md += `\n**Execution** ($${example_stake} stake):\n`;
+            for (const m of mks) {
+              const price = o.direction === 'buy_all_yes' ? m.yesPrice : m.noPrice;
+              const side = o.direction === 'buy_all_yes' ? 'YES' : 'NO';
+              md += `- Buy ${sets} ${side} "${(m.question || '').slice(0, 50)}" @ ${(price * 100).toFixed(1)}¢\n`;
+            }
+            const totalCost = sets * costPerSet;
+            const totalPayout = sets * payout;
+            md += `- **Total cost:** ${formatDollars(totalCost)} · **Payout:** ${formatDollars(totalPayout)} · **Profit:** ${formatDollars(totalPayout - totalCost)}\n`;
+          }
+        }
+
+        const hasPolymarket = top.some((o) => o.platform === 'polymarket');
+        if (hasPolymarket) {
+          md += `\n⚠️ **Polymarket prices are midpoints.** Use \`get_orderbook\` to verify executable ask prices before trading — the edge may shrink or disappear.\n`;
+        }
+
+        return object({
+          scan_time_s: elapsed,
+          opportunities_found: filtered.length,
+          opportunities: top.map((o) => ({
+            platform: o.platform,
+            event: o.eventTitle,
+            event_id: o.eventTicker,
+            num_outcomes: o.numOutcomes,
+            yes_sum: parseFloat(o.yesSum.toFixed(4)),
+            direction: o.direction,
+            edge_pct: parseFloat((o.edge * 100).toFixed(3)),
+            profit_per_dollar: parseFloat(o.profitPerDollar.toFixed(4)),
+            profit_per_stake: parseFloat((o.profitPerDollar * example_stake).toFixed(2)),
+            markets: (o.markets || []).map((m) => ({
+              id: m.id,
+              question: m.question,
+              yes_price: m.yesPrice,
+              no_price: m.noPrice,
+            })),
           })),
-        })),
-        markdown: md,
-      });
+          markdown: md,
+        });
+      } catch (e: unknown) {
+        return error(`Mispricing scan failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
     }
   );
 
@@ -767,7 +879,10 @@ export function registerArbitrageTools(server: McpServerInstance) {
     {
       name: 'analyze_edge',
       description:
-        'Analyze edge on a specific market by comparing prediction market prices vs ESPN implied probabilities from real sportsbooks.',
+        'Deep-dive edge analysis on a single market, comparing prediction market price vs ESPN sportsbook implied probabilities. ' +
+        'WHEN: User has conviction on a specific sports market and wants to know if the price is off, or after scan_arbitrage surfaces a sports opportunity. ' +
+        'REQUIRES: market_id from search_markets/get_market. Optionally espn_event_id + league for sportsbook comparison. ' +
+        'THEN: place_order if edge is favorable, or explain the edge to the user with your own analysis.',
       schema: z.object({
         platform: z.enum(['kalshi', 'polymarket']),
         market_id: z.string().describe('Market ticker (Kalshi) or slug/ID (Polymarket)'),
@@ -850,7 +965,11 @@ export function registerArbitrageTools(server: McpServerInstance) {
     {
       name: 'quick_arb',
       description:
-        'One-click profit: automatically find the best arbitrage and execute both sides. Scans all markets, finds the highest-edge trade, and places simultaneous orders on Kalshi + Polymarket. Orders are placed at ASK prices for instant fills. Use dry_run=true to preview before committing real money.',
+        'Find the best arbitrage opportunity and execute both legs automatically. ' +
+        'WHEN: User wants to execute arbitrage (not just scan), or says "do it" / "execute" after seeing scan results. ' +
+        'REQUIRES: Both Kalshi + Polymarket authentication for live execution. Kalshi-only for dry runs. ' +
+        'ALWAYS start with dry_run=true to preview. Only set dry_run=false after user confirms. ' +
+        'HOW: Scans all markets, finds highest-edge pair, places simultaneous orders at ASK prices for instant fill.',
       schema: z.object({
         category: z
           .enum(['nfl', 'nba', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'politics', 'economics', 'crypto', 'all'])
@@ -881,10 +1000,13 @@ export function registerArbitrageTools(server: McpServerInstance) {
           fetchPolymarkets(category),
         ]);
 
-        const fuzzyMatched = matchMarketsAcrossPlatforms(kalshiMarkets, polyMarkets);
+        const fuzzyMatched = matchMarketsAcrossPlatforms(kalshiMarkets, polyMarkets, 0.30);
         const alreadyMatched = new Set(fuzzyMatched.map((m) => m.kalshiTicker));
+        const usedPolyIds = new Set(
+          fuzzyMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
+        );
         const polyClient = new PolymarketClient(POLY_DUMMY_KEY);
-        const searchMatched = await searchBasedMatch(kalshiMarkets, alreadyMatched, polyClient, 0.30, 5, 15);
+        const searchMatched = await searchBasedMatch(kalshiMarkets, alreadyMatched, polyClient, 0.28, 5, 20, polyMarkets, usedPolyIds);
         const allMatched = [...fuzzyMatched, ...searchMatched];
 
         const opportunities = findArbitrageOpportunities(allMatched, 0.003);

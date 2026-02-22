@@ -16,19 +16,27 @@ export interface PolymarketMarket {
     id: string;
     question: string;
     slug: string;
-    condition_id: string;
-    outcomes: string[];
-    outcome_prices: string[];
-    clob_token_ids: string[];
+    condition_id?: string;
+    conditionId?: string;
+    outcomes: string | string[];
+    outcomePrices?: string | string[];
+    outcome_prices?: string | string[];
+    clobTokenIds?: string | string[];
+    clob_token_ids?: string | string[];
     volume: number;
-    volume_24hr: number;
+    volume24hr?: number;
+    volume_24hr?: number;
     liquidity: number;
     active: boolean;
     closed: boolean;
-    end_date: string;
+    endDate?: string;
+    end_date?: string;
     description: string;
-    tags: PolymarketTag[];
-    resolution_source: string;
+    tags?: PolymarketTag[];
+    resolutionSource?: string;
+    resolution_source?: string;
+    negRisk?: boolean;
+    enableOrderBook?: boolean;
 }
 export interface PolymarketTag {
     id: string;

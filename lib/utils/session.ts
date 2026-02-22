@@ -1,8 +1,7 @@
 /**
- * Per-session credential store for multi-user deployed server.
- * Each MCP connection gets its own isolated credential namespace.
- * Users must call kalshi_login / polymarket_login in every new session.
- * Credentials are never shared across sessions and expire after idle TTL.
+ * Credential store for single-user deployed server.
+ * Credentials persist across HMR reloads via globalThis and are shared
+ * across all sessions (handles inspector proxy session ID mismatches).
  */
 import { KalshiClient } from '../kalshi/client.js';
 import { PolymarketClient } from '../polymarket/client.js';
@@ -23,71 +22,48 @@ export interface SessionState {
   };
 }
 
-const sessionMap = new Map<string, SessionState>();
-const sessionLastSeen = new Map<string, number>();
+// Single global credential store that survives HMR reloads
+const g = globalThis as unknown as { __mcpCreds?: SessionState };
+if (!g.__mcpCreds) g.__mcpCreds = {};
 
-const SESSION_TTL_MS = 2 * 60 * 60 * 1000; // 2 hours
-
-// Evict stale sessions every 15 minutes
-setInterval(() => {
-  const cutoff = Date.now() - SESSION_TTL_MS;
-  for (const [id, ts] of sessionLastSeen) {
-    if (ts < cutoff) {
-      sessionMap.delete(id);
-      sessionLastSeen.delete(id);
-    }
-  }
-}, 15 * 60 * 1000).unref();
-
-function touch(id: string): void {
-  sessionLastSeen.set(id, Date.now());
-}
-
-function hydrateClients(session: SessionState): void {
-  if (session.kalshi) {
+function hydrateClients(state: SessionState): void {
+  if (state.kalshi && !(state.kalshi.client instanceof KalshiClient)) {
     try {
-      session.kalshi.client = new KalshiClient(
-        session.kalshi.apiKeyId,
-        session.kalshi.privateKeyPem
+      state.kalshi.client = new KalshiClient(
+        state.kalshi.apiKeyId,
+        state.kalshi.privateKeyPem
       );
     } catch {
-      delete session.kalshi;
+      delete state.kalshi;
     }
   }
 
-  if (session.polymarket) {
+  if (state.polymarket && !(state.polymarket.client instanceof PolymarketClient)) {
     try {
       const client = new PolymarketClient(
-        session.polymarket.privateKey,
-        session.polymarket.creds,
-        session.polymarket.funderAddress
+        state.polymarket.privateKey,
+        state.polymarket.creds,
+        state.polymarket.funderAddress
       );
-      session.polymarket.client = client;
-      session.polymarket.address = client.address;
+      state.polymarket.client = client;
+      state.polymarket.address = client.address;
     } catch {
-      delete session.polymarket;
+      delete state.polymarket;
     }
   }
 }
 
-export function getSession(sessionId: string): SessionState {
-  touch(sessionId);
-  if (!sessionMap.has(sessionId)) {
-    sessionMap.set(sessionId, {});
-  }
-  const session = sessionMap.get(sessionId)!;
-  hydrateClients(session);
-  return session;
+export function getSession(_sessionId: string): SessionState {
+  hydrateClients(g.__mcpCreds!);
+  return g.__mcpCreds!;
 }
 
 export function setKalshiSession(
-  sessionId: string,
+  _sessionId: string,
   apiKeyId: string,
   privateKeyPem: string
 ): void {
-  touch(sessionId);
-  const session = getSession(sessionId);
-  session.kalshi = {
+  g.__mcpCreds!.kalshi = {
     apiKeyId,
     privateKeyPem,
     client: new KalshiClient(apiKeyId, privateKeyPem),
@@ -95,15 +71,13 @@ export function setKalshiSession(
 }
 
 export function setPolymarketSession(
-  sessionId: string,
+  _sessionId: string,
   privateKey: string,
   creds: L2Credentials,
   funderAddress?: string
 ): void {
-  touch(sessionId);
-  const session = getSession(sessionId);
   const client = new PolymarketClient(privateKey, creds, funderAddress);
-  session.polymarket = {
+  g.__mcpCreds!.polymarket = {
     privateKey,
     funderAddress,
     creds,
@@ -112,17 +86,14 @@ export function setPolymarketSession(
   };
 }
 
-export function clearKalshiSession(sessionId: string): void {
-  const session = getSession(sessionId);
-  delete session.kalshi;
+export function clearKalshiSession(_sessionId: string): void {
+  delete g.__mcpCreds!.kalshi;
 }
 
-export function clearPolymarketSession(sessionId: string): void {
-  const session = getSession(sessionId);
-  delete session.polymarket;
+export function clearPolymarketSession(_sessionId: string): void {
+  delete g.__mcpCreds!.polymarket;
 }
 
-export function clearSession(sessionId: string): void {
-  sessionMap.delete(sessionId);
-  sessionLastSeen.delete(sessionId);
+export function clearSession(_sessionId: string): void {
+  g.__mcpCreds = {};
 }
