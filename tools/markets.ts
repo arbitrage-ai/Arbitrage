@@ -338,11 +338,16 @@ export function registerMarketTools(server: McpServerInstance) {
           );
         }
 
+        const markets = results.map((r: any) => ({
+          ...r,
+          title: r.question || r.title || '',
+        }));
+
         return object({
           query,
           include_combo,
-          results,
-          count: results.length,
+          markets,
+          count: markets.length,
         });
       } catch (e: unknown) {
         return error(`search_markets failed: ${e instanceof Error ? e.message : String(e)}`);

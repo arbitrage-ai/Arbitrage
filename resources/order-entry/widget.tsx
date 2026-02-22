@@ -3,14 +3,18 @@ import { useWidget, useCallTool } from 'mcp-use/react';
 import { z } from 'zod';
 
 const marketSchema = z.object({
+  platform: z.string().optional(),
   ticker: z.string().optional(),
   slug: z.string().optional(),
-  title: z.string(),
+  title: z.string().optional(),
+  question: z.string().optional(),
+  yes_price: z.union([z.string(), z.number()]).optional(),
+  no_price: z.union([z.string(), z.number()]).optional(),
   yes_bid: z.number().optional(),
   yes_ask: z.number().optional(),
   no_bid: z.number().optional(),
   no_ask: z.number().optional(),
-});
+}).passthrough();
 
 const propSchema = z.object({
   markets: z.array(marketSchema).default([]),
@@ -304,7 +308,7 @@ export default function OrderEntry() {
                 <option value="">Choose a market...</option>
                 {props.markets.map((market, i) => (
                   <option key={i} value={market.ticker || market.slug || ''}>
-                    {market.title}
+                    {market.title || market.question || 'Unknown'}
                   </option>
                 ))}
               </select>

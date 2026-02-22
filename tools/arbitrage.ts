@@ -529,9 +529,9 @@ export function registerArbitrageTools(server: McpServerInstance) {
     {
       name: 'scan_arbitrage',
       description:
-        'Scan for cross-platform arbitrage (Kalshi vs Polymarket) and multi-outcome mispricing. ' +
+        'Scan for cross-platform arbitrage (Kalshi vs Polymarket) and multi-outcome mispricing. Renders an interactive arbitrage scanner widget with execute buttons for each opportunity. ' +
         'WHEN: User wants to find risk-free profit, asks about arbitrage, or after suggest_markets surfaces interesting markets. ' +
-        'REQUIRES: Kalshi authentication (kalshi_login). Polymarket data is fetched without auth. ' +
+        'REQUIRES: Kalshi authentication (call auth_status first to show login widget). Polymarket data is fetched without auth. ' +
         'HOW: (1) Cross-platform: buy YES on one exchange + NO on other when combined cost < $1. (2) Event mispricing: outcome prices sum ≠ $1. ' +
         'THEN: quick_arb(dry_run: true) to preview the best trade, or get_orderbook to verify liquidity. ' +
         'Best during volatile periods when one platform lags in price updates.',
@@ -683,17 +683,13 @@ export function registerArbitrageTools(server: McpServerInstance) {
         }
 
         return object({
-          scan: {
-            category,
-            kalshi_markets: kalshiMarkets.length,
-            polymarket_markets: polyMarkets.length,
+          scan_summary: {
+            sport: label,
+            kalshi_markets_fetched: kalshiMarkets.length,
+            polymarket_markets_fetched: polyMarkets.length,
             matched_pairs: allMatched.length,
-            fuzzy_matches: fuzzyMatched.length,
-            search_matches: searchMatched.length,
-            cross_platform_opportunities: opportunities.length,
-            event_mispricing_opportunities: eventFiltered.length,
-            scan_time_ms: totalMs,
-            min_edge,
+            opportunities_found: opportunities.length,
+            min_edge_filter: min_edge,
           },
           opportunities: top.map((o) => ({
             id: o.id,
@@ -701,7 +697,7 @@ export function registerArbitrageTools(server: McpServerInstance) {
             trade: o.direction,
             edge_pct: parseFloat((o.edge * 100).toFixed(3)),
             profit_per_contract: parseFloat(o.profitPerContract.toFixed(4)),
-            cost_per_pair: parseFloat(o.totalCost.toFixed(4)),
+            total_cost_per_pair: parseFloat(o.totalCost.toFixed(4)),
             roi_pct: parseFloat(o.roi.toFixed(2)),
             kalshi_ticker: o.kalshiTicker,
             kalshi_side: o.kalshiSide,
@@ -965,9 +961,9 @@ export function registerArbitrageTools(server: McpServerInstance) {
     {
       name: 'quick_arb',
       description:
-        'Find the best arbitrage opportunity and execute both legs automatically. ' +
+        'Find the best arbitrage opportunity and execute both legs automatically. Renders a trade confirmation widget showing profit summary, order details, and execution status. ' +
         'WHEN: User wants to execute arbitrage (not just scan), or says "do it" / "execute" after seeing scan results. ' +
-        'REQUIRES: Both Kalshi + Polymarket authentication for live execution. Kalshi-only for dry runs. ' +
+        'REQUIRES: Both Kalshi + Polymarket authentication for live execution. Kalshi-only for dry runs. Call auth_status first to show login widget if needed. ' +
         'ALWAYS start with dry_run=true to preview. Only set dry_run=false after user confirms. ' +
         'HOW: Scans all markets, finds highest-edge pair, places simultaneous orders at ASK prices for instant fill.',
       schema: z.object({
@@ -1032,32 +1028,25 @@ export function registerArbitrageTools(server: McpServerInstance) {
 
         const plan = {
           opportunity: best.direction,
-          edge: `${(best.edge * 100).toFixed(2)}%`,
+          edge_pct: `${(best.edge * 100).toFixed(2)}%`,
           contracts: profit.contracts,
           kalshi_order: {
             ticker: best.kalshiTicker,
             side: best.kalshiSide,
-            action: 'buy',
             quantity: profit.contracts,
-            price_cents: Math.round(best.kalshiPrice * 100),
+            price: best.kalshiPrice,
             cost: formatDollars(profit.kalshiCost),
           },
           polymarket_order: {
             slug: best.polymarketSlug,
             side: best.polymarketSide,
-            token_id: best.polymarketTokenIds?.[best.polymarketTokenIdx] || null,
-            action: 'buy',
             quantity: profit.contracts,
             price: best.polymarketPrice,
             cost: formatDollars(profit.polymarketCost),
           },
-          total_investment: formatDollars(profit.totalInvestment),
-          guaranteed_payout: formatDollars(profit.totalInvestment + profit.grossProfit),
-          gross_profit: formatDollars(profit.grossProfit),
-          kalshi_fees: formatDollars(profit.kalshiFees),
-          net_profit: formatDollars(profit.netProfit),
-          net_roi: `${profit.netROI.toFixed(2)}%`,
-          scan_time_ms: scanMs,
+          total_cost: formatDollars(profit.totalInvestment),
+          guaranteed_profit: formatDollars(profit.netProfit),
+          roi_pct: `${profit.netROI.toFixed(2)}%`,
           dry_run,
         };
 

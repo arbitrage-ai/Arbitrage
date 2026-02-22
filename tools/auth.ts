@@ -43,8 +43,9 @@ export function registerAuthTools(server: McpServerInstance) {
     {
       name: 'kalshi_login',
       description:
-        'Authenticate with Kalshi. Required before scan_arbitrage, quick_arb, place_order (Kalshi), or any Kalshi-specific data. ' +
-        'WHEN: auth_status shows Kalshi not authenticated and user wants to trade or scan arbitrage. ' +
+        'Authenticate with Kalshi using API key + PEM private key. Called automatically by the auth_status login widget. ' +
+        'PREFER: Call auth_status instead to show the interactive login widget where users enter credentials securely in UI form fields. ' +
+        'Only call this directly if you already have the credentials as tool parameters. ' +
         'Credentials: API key ID + RSA private key (PEM format or file path). Get from kalshi.com → Settings → API Keys.',
       schema: z.object({
         api_key_id: z
@@ -89,8 +90,9 @@ export function registerAuthTools(server: McpServerInstance) {
     {
       name: 'polymarket_login_with_api_key',
       description:
-        'Authenticate with Polymarket. Required before place_order (Polymarket), quick_arb execution, or fetching Polymarket positions/balance. ' +
-        'WHEN: auth_status shows Polymarket not authenticated and user wants to trade. ' +
+        'Authenticate with Polymarket using private key + API credentials. Called automatically by the auth_status login widget. ' +
+        'PREFER: Call auth_status instead to show the interactive login widget where users enter credentials securely in UI form fields. ' +
+        'Only call this directly if you already have the credentials as tool parameters. ' +
         'NOTE: Polymarket market data (search, prices) works WITHOUT auth. Auth is only needed for trading and portfolio.',
       schema: z.object({
         private_key: z
@@ -162,54 +164,53 @@ export function registerAuthTools(server: McpServerInstance) {
     {
       name: 'auth_status',
       description:
-        'Check authentication status and balances for all platforms. ' +
-        'WHEN: Before any tool that requires auth (scan_arbitrage, place_order, quick_arb, portfolio tools), or when user asks "am I logged in" / "what accounts do I have". ' +
-        'THEN: If not authenticated, guide user to kalshi_login or polymarket_login_with_api_key.',
+        'Shows an interactive login widget and checks auth status. Renders a UI with secure credential input forms for both Kalshi and Polymarket. ' +
+        'WHEN: User wants to log in, connect accounts, authenticate, provides credentials/keys, or before any tool that requires auth. ' +
+        'ALWAYS call this instead of asking users to paste credentials in chat. The widget lets users enter API keys, PEM certificates, and private keys securely in form fields. ' +
+        'Also call when user asks "am I logged in" / "what accounts do I have".',
       schema: z.object({}),
     },
     async (_params, ctx: ToolContext) => {
       const state = getSession(getSessionId(ctx));
-      const result: Record<string, unknown> = {};
+      const authStatus: Record<string, unknown> = {};
 
       if (state.kalshi) {
         try {
           const balance = await state.kalshi.client.getBalance();
-          result.kalshi = {
+          authStatus.kalshi = {
             authenticated: true,
-            api_key_id: state.kalshi.apiKeyId,
+            user_id: state.kalshi.apiKeyId,
             balance: formatDollars(balance.balance / 100),
           };
         } catch {
-          result.kalshi = {
+          authStatus.kalshi = {
             authenticated: true,
-            api_key_id: state.kalshi.apiKeyId,
+            user_id: state.kalshi.apiKeyId,
             balance: 'unable to fetch',
           };
         }
       } else {
-        result.kalshi = { authenticated: false };
+        authStatus.kalshi = { authenticated: false };
       }
 
       if (state.polymarket) {
         try {
           const { usdc, usdcNative, exchange } = await state.polymarket.client.getUSDCBalance();
           const wallet = usdc + usdcNative;
-          result.polymarket = {
+          authStatus.polymarket = {
             authenticated: true,
             address: state.polymarket.address,
             balance: formatDollars(exchange + wallet),
-            exchange_balance: formatDollars(exchange),
-            wallet_balance: formatDollars(wallet),
           };
         } catch {
-          result.polymarket = {
+          authStatus.polymarket = {
             authenticated: true,
             address: state.polymarket.address,
             balance: 'unable to fetch',
           };
         }
       } else {
-        result.polymarket = { authenticated: false };
+        authStatus.polymarket = { authenticated: false };
       }
 
       const nextSteps: { tool: string; reason: string }[] = [];
@@ -226,7 +227,7 @@ export function registerAuthTools(server: McpServerInstance) {
         nextSteps.push({ tool: 'portfolio_summary', reason: 'View portfolio overview across authenticated platforms' });
       }
 
-      return object({ ...result, next_steps: nextSteps });
+      return object({ auth_status: authStatus, next_steps: nextSteps });
     }
   );
 }

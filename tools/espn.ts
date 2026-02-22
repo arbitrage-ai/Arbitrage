@@ -32,7 +32,7 @@ export function registerESPNTools(server: McpServerInstance) {
     {
       name: 'live_scores',
       description:
-        'Get live scores, game status, and schedule from ESPN. No auth needed. ' +
+        'Get live scores, game status, and schedule from ESPN. No auth needed. Renders a live scoreboard widget with game cards showing scores, status, and odds. ' +
         'WHEN: User asks about scores, games today, who is playing, or mentions any sports league. ' +
         'THEN: Proactively call suggest_markets or search_markets for related prediction markets. ' +
         'For live games, also call espn_odds(event_id) to compare sportsbook lines with market prices.',

@@ -182,18 +182,16 @@ export function registerPortfolioTools(server: McpServerInstance) {
     {
       name: 'portfolio_summary',
       description:
-        'Unified portfolio overview: total value, P&L, risk exposure across both platforms. ' +
+        'Unified portfolio overview: total value, P&L, risk exposure across both platforms. Renders an interactive portfolio dashboard widget with platform cards, position table, and P&L tracking. ' +
         'WHEN: User asks "how am I doing", wants a summary, or at the start of a session to set context. ' +
-        'REQUIRES: Authentication on at least one platform. ' +
+        'REQUIRES: Authentication on at least one platform (call auth_status first to show login widget if needed). ' +
         'THEN: Suggest scan_arbitrage for new opportunities based on available balance.',
       schema: z.object({}),
     },
     async (_params, ctx: ToolContext) => {
       const state = getSession(getSessionId(ctx));
-      const summary: Record<string, unknown> = {
-        platforms: {},
-        total_positions: 0,
-      };
+      const result: Record<string, unknown> = { total_positions: 0 };
+      const positions: unknown[] = [];
 
       if (state.kalshi) {
         try {
@@ -209,19 +207,27 @@ export function registerPortfolioTools(server: McpServerInstance) {
             0
           );
 
-          summary.platforms = {
-            ...(summary.platforms as Record<string, unknown>),
-            kalshi: {
-              balance: formatDollars(balance.balance / 100),
-              open_positions: market_positions.length,
-              total_exposure: formatDollars(totalExposure / 100),
-              realized_pnl: formatPnl(totalPnl / 100),
-            },
+          result.kalshi = {
+            balance: formatDollars(balance.balance / 100),
+            open_positions: market_positions.length,
+            total_exposure: formatDollars(totalExposure / 100),
+            realized_pnl: formatPnl(totalPnl / 100),
           };
-          summary.total_positions =
-            (summary.total_positions as number) + market_positions.length;
+          result.total_positions =
+            (result.total_positions as number) + market_positions.length;
+
+          for (const pos of market_positions) {
+            positions.push({
+              platform: 'kalshi',
+              ticker: pos.ticker,
+              position: pos.position,
+              exposure: formatDollars(pos.market_exposure / 100),
+              realized_pnl: formatPnl(pos.realized_pnl / 100),
+              resting_orders: pos.resting_orders_count,
+            });
+          }
         } catch (e: unknown) {
-          (summary.platforms as Record<string, unknown>).kalshi = {
+          result.kalshi = {
             error: e instanceof Error ? e.message : String(e),
           };
         }
@@ -229,36 +235,44 @@ export function registerPortfolioTools(server: McpServerInstance) {
 
       if (state.polymarket) {
         try {
-          const [positions, balanceData] = await Promise.all([
+          const [polyPositions, balanceData] = await Promise.all([
             state.polymarket.client.getPositions(),
             state.polymarket.client.getUSDCBalance().catch(() => ({ usdc: 0, usdcNative: 0, exchange: 0 })),
           ]);
-          const totalPnl = positions.reduce((sum, p) => sum + (p.pnl || 0), 0);
+          const totalPnl = polyPositions.reduce((sum, p) => sum + (p.pnl || 0), 0);
           const totalBalance = balanceData.exchange + balanceData.usdc + balanceData.usdcNative;
 
-          summary.platforms = {
-            ...(summary.platforms as Record<string, unknown>),
-            polymarket: {
-              address: state.polymarket.address,
-              balance: formatDollars(totalBalance),
-              exchange_balance: formatDollars(balanceData.exchange),
-              wallet_balance: formatDollars(balanceData.usdc + balanceData.usdcNative),
-              open_positions: positions.length,
-              total_pnl: formatPnl(totalPnl),
-            },
+          result.polymarket = {
+            address: state.polymarket.address,
+            open_positions: polyPositions.length,
+            total_pnl: formatPnl(totalPnl),
           };
-          summary.total_positions =
-            (summary.total_positions as number) + positions.length;
+          result.total_positions =
+            (result.total_positions as number) + polyPositions.length;
+
+          for (const pos of polyPositions) {
+            positions.push({
+              platform: 'polymarket',
+              market: pos.market,
+              outcome: pos.outcome,
+              size: pos.size,
+              avg_price: pos.avg_price,
+              current_price: pos.cur_price,
+              pnl: formatPnl(pos.pnl),
+            });
+          }
         } catch (e: unknown) {
-          (summary.platforms as Record<string, unknown>).polymarket = {
+          result.polymarket = {
             error: e instanceof Error ? e.message : String(e),
           };
         }
       }
 
+      result.positions = positions;
+
       if (!state.kalshi && !state.polymarket) {
         return object({
-          ...summary,
+          ...result,
           next_steps: [
             { tool: 'kalshi_login', reason: 'Authenticate to view Kalshi portfolio and enable arbitrage' },
             { tool: 'polymarket_login_with_api_key', reason: 'Authenticate to view Polymarket portfolio and enable trading' },
@@ -268,12 +282,12 @@ export function registerPortfolioTools(server: McpServerInstance) {
 
       const nextSteps: { tool: string; params?: Record<string, unknown>; reason: string }[] = [];
       nextSteps.push({ tool: 'scan_arbitrage', params: { category: 'all' }, reason: 'Find new profit opportunities with available balance' });
-      if ((summary.total_positions as number) > 0) {
+      if ((result.total_positions as number) > 0) {
         nextSteps.push({ tool: 'get_positions', reason: 'Drill into individual positions for exit timing' });
       }
       nextSteps.push({ tool: 'suggest_markets', params: { topic: 'trending' }, reason: 'Discover trending markets to deploy capital' });
 
-      return object({ ...summary, next_steps: nextSteps });
+      return object({ ...result, next_steps: nextSteps });
     }
   );
 }

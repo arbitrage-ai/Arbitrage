@@ -116,8 +116,8 @@ function PlatformLoginCard({
   const [isFocused, setIsFocused] = useState<string | null>(null);
 
   const { callTool: loginKalshi, isPending: kalshiPending, isSuccess: kalshiSuccess, isError: kalshiError } = useCallTool<{
-    api_key: string;
-    pem: string;
+    api_key_id: string;
+    private_key_pem: string;
   }>('kalshi_login');
 
   const { callTool: loginPolymarket, isPending: polymarketPending, isSuccess: polymarketSuccess, isError: polymarketError } = useCallTool<{
@@ -135,14 +135,14 @@ function PlatformLoginCard({
 
   const handleLogin = () => {
     if (platform === 'kalshi' && kalshiApiKey && kalshiPem) {
-      loginKalshi({ api_key: kalshiApiKey, pem: kalshiPem });
-    } else if (platform === 'polymarket' && polyPrivateKey && polyApiKey && polySecret && polyPassphrase && polyFunderAddress) {
+      loginKalshi({ api_key_id: kalshiApiKey, private_key_pem: kalshiPem });
+    } else if (platform === 'polymarket' && polyPrivateKey && polyApiKey && polySecret && polyPassphrase) {
       loginPolymarket({
         private_key: polyPrivateKey,
         api_key: polyApiKey,
         secret: polySecret,
         passphrase: polyPassphrase,
-        funder_address: polyFunderAddress
+        funder_address: polyFunderAddress || '',
       });
     }
   };
@@ -369,7 +369,7 @@ function PlatformLoginCard({
               </div>
               <div style={{ marginBottom: 20 }}>
                 <label style={{ fontSize: 13, fontWeight: 600, color: COLORS.neutral[700], display: 'block', marginBottom: 8 }}>
-                  Funder Address
+                  Funder Address (optional)
                 </label>
                 <input
                   type="text"
@@ -390,33 +390,33 @@ function PlatformLoginCard({
 
           <button
             onClick={handleLogin}
-            disabled={isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase || !polyFunderAddress)}
+            disabled={isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase)}
             style={{
               width: '100%',
-              background: isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase || !polyFunderAddress) ? COLORS.neutral[300] : colors.primary,
+              background: isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase) ? COLORS.neutral[300] : colors.primary,
               color: '#FFFFFF',
               border: 'none',
               borderRadius: 8,
               padding: '12px 20px',
               fontSize: 15,
               fontWeight: 600,
-              cursor: isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase || !polyFunderAddress) ? 'not-allowed' : 'pointer',
+              cursor: isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase) ? 'not-allowed' : 'pointer',
               transition: 'all 0.2s ease',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               gap: 8,
-              boxShadow: isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase || !polyFunderAddress) ? 'none' : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
+              boxShadow: isPending || (platform === 'kalshi' ? !kalshiApiKey || !kalshiPem : !polyPrivateKey || !polyApiKey || !polySecret || !polyPassphrase) ? 'none' : '0 1px 2px 0 rgba(0, 0, 0, 0.05)',
             }}
             onMouseEnter={(e) => {
-              if (!isPending && (platform === 'kalshi' ? kalshiApiKey && kalshiPem : polyPrivateKey && polyApiKey && polySecret && polyPassphrase && polyFunderAddress)) {
+              if (!isPending && (platform === 'kalshi' ? kalshiApiKey && kalshiPem : polyPrivateKey && polyApiKey && polySecret && polyPassphrase)) {
                 e.currentTarget.style.background = colors.primaryDark;
                 e.currentTarget.style.transform = 'translateY(-1px)';
                 e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1)';
               }
             }}
             onMouseLeave={(e) => {
-              if (!isPending && (platform === 'kalshi' ? kalshiApiKey && kalshiPem : polyPrivateKey && polyApiKey && polySecret && polyPassphrase && polyFunderAddress)) {
+              if (!isPending && (platform === 'kalshi' ? kalshiApiKey && kalshiPem : polyPrivateKey && polyApiKey && polySecret && polyPassphrase)) {
                 e.currentTarget.style.background = colors.primary;
                 e.currentTarget.style.transform = 'translateY(0)';
                 e.currentTarget.style.boxShadow = '0 1px 2px 0 rgba(0, 0, 0, 0.05)';
