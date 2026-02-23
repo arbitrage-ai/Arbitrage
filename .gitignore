@@ -38,3 +38,4 @@ dist/
 
 # mcp-use deployment
 .mcp-use
+/presentation
