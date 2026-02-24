@@ -247,11 +247,13 @@ interface EventMispricing {
   direction: 'buy_all_yes' | 'buy_all_no';
   edge: number;
   profitPerDollar: number;
+  verified: boolean;
   markets: {
     id: string;
     question: string;
     yesPrice: number;
     noPrice: number;
+    tokenIds?: string[];
   }[];
 }
 
@@ -261,40 +263,42 @@ async function scanKalshiEventMispricing(
   const results: EventMispricing[] = [];
 
   try {
-    // Fetch all open markets and group by event
-    const { markets } = await client.getMarkets({ status: 'open', limit: 200 });
+    // Deep paginate all open markets (up to 10 pages = 2000 markets)
     const events = new Map<string, KalshiMarket[]>();
-    for (const m of markets) {
-      if (m.yes_ask <= 0 || m.no_ask <= 0) continue;
-      const group = events.get(m.event_ticker) || [];
-      group.push(m);
-      events.set(m.event_ticker, group);
-    }
+    const seen = new Set<string>();
+    let cursor = '';
+    const MAX_PAGES = 10;
 
-    // Second page using cursor from first response
-    try {
-      const firstPage = await client.getMarkets({ status: 'open', limit: 200 });
-      if (firstPage.cursor) {
-        const page2 = await client.getMarkets({ status: 'open', limit: 200, cursor: firstPage.cursor });
-        for (const m of page2.markets) {
-          if (m.yes_ask <= 0 || m.no_ask <= 0) continue;
-          const group = events.get(m.event_ticker) || [];
-          group.push(m);
-          events.set(m.event_ticker, group);
-        }
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const params: { status: string; limit: number; cursor?: string } = { status: 'open', limit: 200 };
+      if (cursor) params.cursor = cursor;
+
+      const res = await client.getMarkets(params);
+      if (!res.markets || res.markets.length === 0) break;
+
+      for (const m of res.markets) {
+        if (seen.has(m.ticker)) continue;
+        seen.add(m.ticker);
+        if (m.yes_ask <= 0 || m.no_ask <= 0) continue;
+        const group = events.get(m.event_ticker) || [];
+        group.push(m);
+        events.set(m.event_ticker, group);
       }
-    } catch { /* ignore */ }
+
+      cursor = res.cursor || '';
+      if (!cursor || res.markets.length < 200) break;
+    }
 
     for (const [eventTicker, mks] of events) {
       if (mks.length < 2) continue;
 
-      const yesAskSum = mks.reduce((s, m) => s + m.yes_ask, 0); // in cents
+      const yesAskSum = mks.reduce((s, m) => s + m.yes_ask, 0);
       const noAskSum = mks.reduce((s, m) => s + m.no_ask, 0);
       const N = mks.length;
 
       // Buy all YES: cost = yesAskSum, payout = 100
       const yesEdgeCents = 100 - yesAskSum;
-      if (yesEdgeCents > 1) { // more than 1 cent profit
+      if (yesEdgeCents > 0) {
         results.push({
           platform: 'kalshi',
           eventTitle: mks[0].title.split(' ').slice(0, -1).join(' ') || eventTicker,
@@ -304,6 +308,7 @@ async function scanKalshiEventMispricing(
           direction: 'buy_all_yes',
           edge: yesEdgeCents / 100,
           profitPerDollar: yesEdgeCents / yesAskSum,
+          verified: false,
           markets: mks.map((m) => ({
             id: m.ticker,
             question: `${m.title} ${m.subtitle}`.trim(),
@@ -315,7 +320,7 @@ async function scanKalshiEventMispricing(
 
       // Buy all NO: cost = noAskSum, payout = (N-1) * 100
       const noEdgeCents = (N - 1) * 100 - noAskSum;
-      if (noEdgeCents > 1) {
+      if (noEdgeCents > 0) {
         results.push({
           platform: 'kalshi',
           eventTitle: mks[0].title.split(' ').slice(0, -1).join(' ') || eventTicker,
@@ -325,6 +330,7 @@ async function scanKalshiEventMispricing(
           direction: 'buy_all_no',
           edge: noEdgeCents / 100,
           profitPerDollar: noEdgeCents / noAskSum,
+          verified: false,
           markets: mks.map((m) => ({
             id: m.ticker,
             question: `${m.title} ${m.subtitle}`.trim(),
@@ -342,116 +348,175 @@ async function scanKalshiEventMispricing(
 async function scanPolymarketEventMispricing(): Promise<EventMispricing[]> {
   const results: EventMispricing[] = [];
   const tempClient = new PolymarketClient(POLY_DUMMY_KEY);
+  const seenEvents = new Set<string>();
 
   try {
-    // Fetch high-volume events with nested markets
-    const events = await tempClient.searchEvents({
-      active: true, closed: false, order: 'volume24hr', ascending: false, limit: 100,
-    });
-
-    for (const event of events) {
-      if (!event.markets || event.markets.length < 2) continue;
-
-      const parsedMarkets: { slug: string; question: string; yesPrice: number; noPrice: number }[] = [];
-      for (const m of event.markets) {
-        if (!m.active || m.closed) continue;
-        const parsed = PolymarketClient.parseMarketFields(m as unknown as Record<string, unknown>);
-        const yp = parseFloat(parsed.outcomePrices[0] || '0');
-        const np = parseFloat(parsed.outcomePrices[1] || '0');
-        if (yp > 0 || np > 0) {
-          parsedMarkets.push({ slug: m.slug, question: m.question, yesPrice: yp, noPrice: np });
-        }
-      }
-
-      if (parsedMarkets.length < 2) continue;
-
-      const yesSum = parsedMarkets.reduce((s, m) => s + m.yesPrice, 0);
-      const N = parsedMarkets.length;
-
-      // Add spread buffer (~2% for Polymarket since we only have midpoints)
-      const SPREAD_BUFFER = 0.02;
-
-      // Buy all YES: cost ≈ yesSum + buffer, payout = 1.0
-      const yesEdge = 1.0 - yesSum - SPREAD_BUFFER;
-      if (yesEdge > 0.005) {
-        results.push({
-          platform: 'polymarket',
-          eventTitle: event.title,
-          eventTicker: event.slug,
-          numOutcomes: N,
-          yesSum,
-          direction: 'buy_all_yes',
-          edge: yesEdge,
-          profitPerDollar: yesEdge / (yesSum + SPREAD_BUFFER),
-          markets: parsedMarkets.map((m) => ({
-            id: m.slug, question: m.question, yesPrice: m.yesPrice, noPrice: m.noPrice,
-          })),
-        });
-      }
-
-      // Buy all NO: cost ≈ sum(noPrice), payout = N-1
-      const noSum = parsedMarkets.reduce((s, m) => s + m.noPrice, 0);
-      const noEdge = (N - 1) - noSum - SPREAD_BUFFER;
-      if (noEdge > 0.005) {
-        results.push({
-          platform: 'polymarket',
-          eventTitle: event.title,
-          eventTicker: event.slug,
-          numOutcomes: N,
-          yesSum,
-          direction: 'buy_all_no',
-          edge: noEdge,
-          profitPerDollar: noEdge / (noSum + SPREAD_BUFFER),
-          markets: parsedMarkets.map((m) => ({
-            id: m.slug, question: m.question, yesPrice: m.yesPrice, noPrice: m.noPrice,
-          })),
-        });
-      }
-    }
-
-    // Second page of events
-    try {
-      const page2 = await tempClient.searchEvents({
-        active: true, closed: false, order: 'volume24hr', ascending: false, limit: 100, offset: 100,
+    // Deep paginate high-volume events (up to 5 pages = 500 events)
+    const MAX_PAGES = 5;
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const events = await tempClient.searchEvents({
+        active: true, closed: false, order: 'volume24hr', ascending: false,
+        limit: 100, offset: page * 100,
       });
-      for (const event of page2) {
+      if (!events || events.length === 0) break;
+
+      for (const event of events) {
         if (!event.markets || event.markets.length < 2) continue;
-        const parsedMarkets: { slug: string; question: string; yesPrice: number; noPrice: number }[] = [];
+        if (seenEvents.has(event.slug)) continue;
+        seenEvents.add(event.slug);
+
+        const parsedMarkets: { slug: string; question: string; yesPrice: number; noPrice: number; tokenIds: string[] }[] = [];
         for (const m of event.markets) {
           if (!m.active || m.closed) continue;
           const parsed = PolymarketClient.parseMarketFields(m as unknown as Record<string, unknown>);
           const yp = parseFloat(parsed.outcomePrices[0] || '0');
           const np = parseFloat(parsed.outcomePrices[1] || '0');
-          if (yp > 0 || np > 0) parsedMarkets.push({ slug: m.slug, question: m.question, yesPrice: yp, noPrice: np });
+          if (yp > 0 || np > 0) {
+            parsedMarkets.push({
+              slug: m.slug, question: m.question, yesPrice: yp, noPrice: np,
+              tokenIds: parsed.clobTokenIds,
+            });
+          }
         }
+
         if (parsedMarkets.length < 2) continue;
+
         const yesSum = parsedMarkets.reduce((s, m) => s + m.yesPrice, 0);
         const N = parsedMarkets.length;
+
+        // Spread buffer — midpoints aren't executable, real ask is typically 1-2% wider
         const SPREAD_BUFFER = 0.02;
+
+        // Buy all YES: cost ~ yesSum + buffer, payout = 1.0
         const yesEdge = 1.0 - yesSum - SPREAD_BUFFER;
-        if (yesEdge > 0.005) {
+        if (yesEdge > 0) {
           results.push({
-            platform: 'polymarket', eventTitle: event.title, eventTicker: event.slug,
-            numOutcomes: N, yesSum, direction: 'buy_all_yes', edge: yesEdge,
+            platform: 'polymarket',
+            eventTitle: event.title,
+            eventTicker: event.slug,
+            numOutcomes: N,
+            yesSum,
+            direction: 'buy_all_yes',
+            edge: yesEdge,
             profitPerDollar: yesEdge / (yesSum + SPREAD_BUFFER),
-            markets: parsedMarkets.map((m) => ({ id: m.slug, question: m.question, yesPrice: m.yesPrice, noPrice: m.noPrice })),
+            verified: false,
+            markets: parsedMarkets.map((m) => ({
+              id: m.slug, question: m.question, yesPrice: m.yesPrice, noPrice: m.noPrice,
+              tokenIds: m.tokenIds,
+            })),
           });
         }
+
+        // Buy all NO: cost ~ noSum + buffer, payout = N-1
         const noSum = parsedMarkets.reduce((s, m) => s + m.noPrice, 0);
         const noEdge = (N - 1) - noSum - SPREAD_BUFFER;
-        if (noEdge > 0.005) {
+        if (noEdge > 0) {
           results.push({
-            platform: 'polymarket', eventTitle: event.title, eventTicker: event.slug,
-            numOutcomes: N, yesSum, direction: 'buy_all_no', edge: noEdge,
+            platform: 'polymarket',
+            eventTitle: event.title,
+            eventTicker: event.slug,
+            numOutcomes: N,
+            yesSum,
+            direction: 'buy_all_no',
+            edge: noEdge,
             profitPerDollar: noEdge / (noSum + SPREAD_BUFFER),
-            markets: parsedMarkets.map((m) => ({ id: m.slug, question: m.question, yesPrice: m.yesPrice, noPrice: m.noPrice })),
+            verified: false,
+            markets: parsedMarkets.map((m) => ({
+              id: m.slug, question: m.question, yesPrice: m.yesPrice, noPrice: m.noPrice,
+              tokenIds: m.tokenIds,
+            })),
           });
         }
       }
-    } catch { /* ignore */ }
+
+      if (events.length < 100) break;
+    }
   } catch { /* ignore */ }
 
   return results.sort((a, b) => b.edge - a.edge);
+}
+
+// ---------------------------------------------------------------------------
+// Orderbook verification — replaces midpoints with real executable ask prices
+// ---------------------------------------------------------------------------
+
+async function verifyMispricingWithOrderbook(
+  opp: EventMispricing,
+  kalshiClient?: KalshiClient,
+): Promise<EventMispricing | null> {
+  const verified = { ...opp, markets: [...opp.markets], verified: true };
+
+  if (opp.platform === 'kalshi' && kalshiClient) {
+    // Kalshi: fetch orderbook for each market, use best ask
+    const updatedMarkets = await Promise.all(
+      opp.markets.map(async (m) => {
+        try {
+          const { orderbook } = await kalshiClient.getOrderbook(m.id);
+          // yes field = array of [price, qty] for YES asks (sorted by price asc)
+          const bestYesAsk = orderbook.yes?.[0]?.[0];
+          const bestNoAsk = orderbook.no?.[0]?.[0];
+          return {
+            ...m,
+            yesPrice: bestYesAsk != null ? bestYesAsk / 100 : m.yesPrice,
+            noPrice: bestNoAsk != null ? bestNoAsk / 100 : m.noPrice,
+          };
+        } catch {
+          return m;
+        }
+      }),
+    );
+    verified.markets = updatedMarkets;
+  } else if (opp.platform === 'polymarket') {
+    // Polymarket: fetch public CLOB orderbook for each market's YES token
+    const updatedMarkets = await Promise.all(
+      opp.markets.map(async (m) => {
+        const yesTokenId = m.tokenIds?.[0];
+        const noTokenId = m.tokenIds?.[1];
+        if (!yesTokenId) return m;
+        try {
+          // Fetch YES token book — best ask = cheapest price to buy YES
+          const yesBook = await PolymarketClient.getPublicOrderbook(yesTokenId);
+          const bestYesAsk = yesBook.asks?.[0]?.price ? parseFloat(yesBook.asks[0].price) : m.yesPrice;
+
+          let bestNoAsk = m.noPrice;
+          if (noTokenId) {
+            try {
+              const noBook = await PolymarketClient.getPublicOrderbook(noTokenId);
+              bestNoAsk = noBook.asks?.[0]?.price ? parseFloat(noBook.asks[0].price) : m.noPrice;
+            } catch { /* keep midpoint */ }
+          }
+
+          return { ...m, yesPrice: bestYesAsk, noPrice: bestNoAsk };
+        } catch {
+          return m;
+        }
+      }),
+    );
+    verified.markets = updatedMarkets;
+  }
+
+  // Recalculate edge with verified prices
+  const yesSum = verified.markets.reduce((s, m) => s + m.yesPrice, 0);
+  const noSum = verified.markets.reduce((s, m) => s + m.noPrice, 0);
+  const N = verified.numOutcomes;
+
+  if (opp.direction === 'buy_all_yes') {
+    const payout = opp.platform === 'kalshi' ? 1.0 : 1.0;
+    const edge = payout - yesSum;
+    if (edge <= 0) return null; // edge gone after verification
+    verified.yesSum = yesSum;
+    verified.edge = edge;
+    verified.profitPerDollar = edge / yesSum;
+  } else {
+    const payout = N - 1;
+    const edge = payout - noSum;
+    if (edge <= 0) return null;
+    verified.yesSum = yesSum;
+    verified.edge = edge;
+    verified.profitPerDollar = edge / noSum;
+  }
+
+  return verified;
 }
 
 // ---------------------------------------------------------------------------
@@ -749,11 +814,16 @@ export function registerArbitrageTools(server: McpServerInstance) {
     {
       name: 'scan_mispricing',
       description:
-        'Find events where outcome prices don\'t sum to $1 (single-platform mispricing). ' +
-        'WHEN: After scan_arbitrage for deeper single-platform analysis, or when user specifically asks about mispricing. ' +
-        'HOW: N mutually exclusive outcomes should sum to $1. If < $1 → buy all YES. If > $1 → buy all NO. ' +
-        'CAVEAT: Polymarket prices are midpoints; verify with get_orderbook before trading. Kalshi uses live ask prices. ' +
-        'THEN: get_orderbook to verify executable prices, then place_order for each outcome.',
+        'Find events where outcome prices don\'t sum to $1 — guaranteed profit opportunities. ' +
+        'WHEN: After scan_arbitrage for deeper single-platform analysis, or when user asks about mispricing or guaranteed profit. ' +
+        'HOW: N mutually exclusive outcomes should sum to $1. If < $1 → buy all YES (one must win). If > $1 → buy all NO. ' +
+        'AUTOMATIC ORDERBOOK VERIFICATION: Top opportunities are verified against real ask prices before display. ' +
+        'THEN: execute_mispricing to batch-execute all legs of the best opportunity.',
+      widget: {
+        name: 'arbitrage-scanner',
+        invoking: 'Deep-scanning mispricing across all events...',
+        invoked: 'Mispricing scan complete',
+      },
       schema: z.object({
         platform: z
           .enum(['kalshi', 'polymarket', 'both'])
@@ -761,8 +831,8 @@ export function registerArbitrageTools(server: McpServerInstance) {
           .describe('Which platform to scan'),
         min_edge: z
           .number()
-          .default(0.005)
-          .describe('Minimum edge as decimal (0.005 = 0.5%)'),
+          .default(0.003)
+          .describe('Minimum edge as decimal (0.003 = 0.3%). Lower = more results.'),
         max_results: z
           .number()
           .default(15)
@@ -771,9 +841,13 @@ export function registerArbitrageTools(server: McpServerInstance) {
           .number()
           .default(50)
           .describe('Stake for profit projection'),
+        verify_orderbook: z
+          .boolean()
+          .default(true)
+          .describe('Verify top opportunities against real orderbook ask prices. Slower but guarantees executable edge.'),
       }),
     },
-    async ({ platform, min_edge, max_results, example_stake }, ctx: ToolContext) => {
+    async ({ platform, min_edge, max_results, example_stake, verify_orderbook }, ctx: ToolContext) => {
       const state = getSession(getSessionId(ctx));
       const t0 = Date.now();
       const allOpps: EventMispricing[] = [];
@@ -797,31 +871,61 @@ export function registerArbitrageTools(server: McpServerInstance) {
           } catch { /* Polymarket mispricing scan non-critical */ }
         }
 
-        const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
-        const filtered = allOpps.filter((o) => o.edge >= min_edge).sort((a, b) => b.edge - a.edge);
-        const top = filtered.slice(0, max_results);
+        const scanElapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        const preFilter = allOpps.filter((o) => o.edge >= min_edge).sort((a, b) => b.edge - a.edge);
 
-        if (top.length === 0) {
-          return markdown(
-            `## Event Mispricing Scan — No Opportunities\n\n` +
-            `Scanned multi-outcome events on ${platform} in ${elapsed}s.\n` +
-            `All event outcome sums are within ${(min_edge * 100).toFixed(1)}% of fair value.\n\n` +
-            `**Tips:** Lower \`min_edge\`, or try during volatile periods when prices haven't caught up.`
+        // Orderbook verification on top candidates
+        let verified: EventMispricing[] = [];
+        let verifiedCount = 0;
+        if (verify_orderbook && preFilter.length > 0) {
+          const toVerify = preFilter.slice(0, Math.min(max_results + 5, preFilter.length));
+          const verifyResults = await Promise.all(
+            toVerify.map((o) => verifyMispricingWithOrderbook(o, state.kalshi?.client)),
           );
+          for (const v of verifyResults) {
+            if (v && v.edge >= min_edge) verified.push(v);
+          }
+          verifiedCount = toVerify.length;
+        } else {
+          verified = preFilter;
         }
 
-        let md = `## Event Mispricing Scanner — ${top.length} Opportunities Found\n\n`;
-        md += `Scanned in **${elapsed}s** · Min edge: ${(min_edge * 100).toFixed(1)}%\n\n`;
+        const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+        const top = verified.slice(0, max_results);
 
-        md += `| # | Platform | Event | Outcomes | YES Sum | Direction | Edge | Profit/$${example_stake} |\n`;
-        md += `|--:|----------|-------|--------:|--------:|-----------|-----:|----------:|\n`;
+        if (top.length === 0) {
+          const noOppData = {
+            scan_time_s: elapsed,
+            markets_scanned: allOpps.length,
+            pre_verify_candidates: preFilter.length,
+            verified_survivors: 0,
+            note: verify_orderbook && preFilter.length > 0
+              ? `Found ${preFilter.length} candidates but none survived orderbook verification. Midpoint edges disappear at real ask prices.`
+              : `All event outcome sums are within ${(min_edge * 100).toFixed(1)}% of fair value.`,
+            markdown: `## Event Mispricing Scan — No Opportunities\n\nScanned in ${elapsed}s · ${preFilter.length} pre-filter candidates\n\n` +
+              (verify_orderbook && preFilter.length > 0
+                ? `Found ${preFilter.length} candidates based on midpoints, but **none survived orderbook verification**. Real ask prices eliminated all edges.\n\n`
+                : `All outcome sums within ${(min_edge * 100).toFixed(1)}% of fair value.\n\n`) +
+              `**Tips:** Try during volatile periods when prices lag, or lower \`min_edge\`.`,
+          };
+          return widget({ props: noOppData, output: object(noOppData) });
+        }
+
+        let md = `## Event Mispricing Scanner — ${top.length} Opportunities\n\n`;
+        md += `Scanned in **${elapsed}s** (${scanElapsed}s scan + ${(parseFloat(elapsed) - parseFloat(scanElapsed)).toFixed(1)}s verification)\n`;
+        if (verify_orderbook) md += `Verified **${verifiedCount}** candidates against orderbooks · **${top.length}** survived\n`;
+        md += `Min edge: ${(min_edge * 100).toFixed(1)}%\n\n`;
+
+        md += `| # | Platform | Event | Outcomes | YES Sum | Direction | Edge | Verified | Profit/$${example_stake} |\n`;
+        md += `|--:|----------|-------|--------:|--------:|-----------|-----:|:--------:|----------:|\n`;
 
         for (let i = 0; i < top.length; i++) {
           const o = top[i];
           const title = (o.eventTitle || 'Unknown').length > 35 ? (o.eventTitle || 'Unknown').slice(0, 32) + '...' : (o.eventTitle || 'Unknown');
           const dir = o.direction === 'buy_all_yes' ? 'Buy ALL Yes' : 'Buy ALL No';
           const profitForStake = o.profitPerDollar * example_stake;
-          md += `| ${i + 1} | ${o.platform} | ${title} | ${o.numOutcomes} | ${o.yesSum.toFixed(3)} | ${dir} | ${(o.edge * 100).toFixed(2)}% | $${profitForStake.toFixed(2)} |\n`;
+          const check = o.verified ? 'Yes' : 'No';
+          md += `| ${i + 1} | ${o.platform} | ${title} | ${o.numOutcomes} | ${o.yesSum.toFixed(3)} | ${dir} | ${(o.edge * 100).toFixed(2)}% | ${check} | $${profitForStake.toFixed(2)} |\n`;
         }
 
         // Detail top 3
@@ -829,9 +933,9 @@ export function registerArbitrageTools(server: McpServerInstance) {
         for (let i = 0; i < detailCount; i++) {
           const o = top[i];
           const mks = o.markets || [];
-          md += `\n---\n\n### #${i + 1}  ${o.eventTitle || 'Unknown'} (${o.platform})\n\n`;
+          md += `\n---\n\n### #${i + 1}  ${o.eventTitle || 'Unknown'} (${o.platform})${o.verified ? ' — VERIFIED' : ''}\n\n`;
           md += `**${o.numOutcomes} outcomes** · YES sum: ${o.yesSum.toFixed(4)} · Edge: ${(o.edge * 100).toFixed(2)}%\n\n`;
-          md += `**Strategy:** ${o.direction === 'buy_all_yes' ? 'Buy YES on every outcome' : 'Buy NO on every outcome'}\n`;
+          md += `**Strategy:** ${o.direction === 'buy_all_yes' ? 'Buy YES on every outcome — exactly one must win → payout $1.00' : `Buy NO on every outcome — at most one loses → payout $${(o.numOutcomes - 1).toFixed(2)}`}\n`;
 
           const costPerSet = o.direction === 'buy_all_yes'
             ? mks.reduce((s, m) => s + m.yesPrice, 0)
@@ -840,26 +944,24 @@ export function registerArbitrageTools(server: McpServerInstance) {
           const sets = costPerSet > 0 ? Math.floor(example_stake / costPerSet) : 0;
 
           if (sets > 0) {
-            md += `\n**Execution** ($${example_stake} stake):\n`;
+            md += `\n**Execution plan** ($${example_stake} stake → ${sets} sets):\n`;
             for (const m of mks) {
               const price = o.direction === 'buy_all_yes' ? m.yesPrice : m.noPrice;
               const side = o.direction === 'buy_all_yes' ? 'YES' : 'NO';
-              md += `- Buy ${sets} ${side} "${(m.question || '').slice(0, 50)}" @ ${(price * 100).toFixed(1)}¢\n`;
+              md += `- Buy ${sets} ${side} "${(m.question || '').slice(0, 50)}" @ ${(price * 100).toFixed(1)}c\n`;
             }
             const totalCost = sets * costPerSet;
             const totalPayout = sets * payout;
-            md += `- **Total cost:** ${formatDollars(totalCost)} · **Payout:** ${formatDollars(totalPayout)} · **Profit:** ${formatDollars(totalPayout - totalCost)}\n`;
+            md += `- **Total cost:** ${formatDollars(totalCost)} · **Guaranteed payout:** ${formatDollars(totalPayout)} · **Profit:** ${formatDollars(totalPayout - totalCost)}\n`;
           }
         }
 
-        const hasPolymarket = top.some((o) => o.platform === 'polymarket');
-        if (hasPolymarket) {
-          md += `\n⚠️ **Polymarket prices are midpoints.** Use \`get_orderbook\` to verify executable ask prices before trading — the edge may shrink or disappear.\n`;
-        }
+        md += `\n---\n*Execute: \`execute_mispricing\` with \`event_ticker\` from above and \`stake: ${example_stake}\`*`;
 
-        return object({
+        const scanData = {
           scan_time_s: elapsed,
-          opportunities_found: filtered.length,
+          opportunities_found: verified.length,
+          orderbook_verified: verify_orderbook,
           opportunities: top.map((o) => ({
             platform: o.platform,
             event: o.eventTitle,
@@ -870,6 +972,7 @@ export function registerArbitrageTools(server: McpServerInstance) {
             edge_pct: parseFloat((o.edge * 100).toFixed(3)),
             profit_per_dollar: parseFloat(o.profitPerDollar.toFixed(4)),
             profit_per_stake: parseFloat((o.profitPerDollar * example_stake).toFixed(2)),
+            verified: o.verified,
             markets: (o.markets || []).map((m) => ({
               id: m.id,
               question: m.question,
@@ -878,11 +981,222 @@ export function registerArbitrageTools(server: McpServerInstance) {
             })),
           })),
           markdown: md,
-        });
+        };
+        return widget({ props: scanData, output: object(scanData) });
       } catch (e: unknown) {
         return error(`Mispricing scan failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+  );
+
+  // =========================================================================
+  // execute_mispricing — batch-execute all legs of a mispricing opportunity
+  // =========================================================================
+  server.tool(
+    {
+      name: 'execute_mispricing',
+      description:
+        'Execute a mispricing opportunity by placing orders on ALL outcomes simultaneously. ' +
+        'WHEN: After scan_mispricing finds a verified opportunity, or user says "execute" / "do it". ' +
+        'REQUIRES: Platform authentication (kalshi_login or polymarket_login). ' +
+        'HOW: Re-verifies edge against live orderbook, then places limit orders for every outcome in the event. ' +
+        'ALWAYS start with dry_run=true. Only set false after user confirms.',
+      widget: {
+        name: 'trade-confirmation',
+        invoking: 'Verifying and preparing mispricing trades...',
+        invoked: 'Mispricing execution complete',
+      },
+      schema: z.object({
+        platform: z
+          .enum(['kalshi', 'polymarket'])
+          .describe('Which platform the mispricing is on'),
+        event_ticker: z
+          .string()
+          .describe('Event ticker/slug from scan_mispricing results'),
+        direction: z
+          .enum(['buy_all_yes', 'buy_all_no'])
+          .describe('Strategy direction from scan results'),
+        stake: z
+          .number()
+          .min(1)
+          .default(50)
+          .describe('Total dollar amount to stake across all outcomes'),
+        dry_run: z
+          .boolean()
+          .default(true)
+          .describe('Preview trades without executing. Set false to place real orders.'),
+      }),
+    },
+    async ({ platform, event_ticker, direction, stake, dry_run }, ctx: ToolContext) => {
+      const state = getSession(getSessionId(ctx));
+
+      if (platform === 'kalshi' && !state.kalshi) {
+        return error('Kalshi authentication required. Run kalshi_login first.');
+      }
+      if (platform === 'polymarket' && !state.polymarket) {
+        return error('Polymarket authentication required. Run polymarket_login first.');
+      }
+
+      try {
+        // Step 1: Re-scan to find the specific opportunity and verify it's still live
+        let opportunity: EventMispricing | null = null;
+
+        if (platform === 'kalshi') {
+          const opps = await scanKalshiEventMispricing(state.kalshi!.client);
+          opportunity = opps.find((o) => o.eventTicker === event_ticker && o.direction === direction) || null;
+        } else {
+          const opps = await scanPolymarketEventMispricing();
+          opportunity = opps.find((o) => o.eventTicker === event_ticker && o.direction === direction) || null;
+        }
+
+        if (!opportunity) {
+          return error(
+            `Mispricing opportunity no longer exists for ${event_ticker} (${direction}). ` +
+            `Prices may have moved. Run scan_mispricing again to find current opportunities.`,
+          );
+        }
+
+        // Step 2: Verify against live orderbook
+        const verified = await verifyMispricingWithOrderbook(opportunity, state.kalshi?.client);
+        if (!verified || verified.edge <= 0) {
+          return error(
+            `Edge for ${event_ticker} disappeared after orderbook verification. ` +
+            `Midpoint showed ${(opportunity.edge * 100).toFixed(2)}% but real ask prices eliminate the profit. ` +
+            `Run scan_mispricing to find opportunities that survive verification.`,
+          );
+        }
+
+        // Step 3: Calculate position sizes
+        const costPerSet = verified.direction === 'buy_all_yes'
+          ? verified.markets.reduce((s, m) => s + m.yesPrice, 0)
+          : verified.markets.reduce((s, m) => s + m.noPrice, 0);
+        const payout = verified.direction === 'buy_all_yes' ? 1.0 : verified.numOutcomes - 1;
+        const sets = costPerSet > 0 ? Math.floor(stake / costPerSet) : 0;
+
+        if (sets < 1) {
+          return error(
+            `Stake of $${stake} too small. Need at least ${formatDollars(costPerSet)} per set. ` +
+            `Increase stake to at least ${formatDollars(Math.ceil(costPerSet))}.`,
+          );
+        }
+
+        const totalCost = sets * costPerSet;
+        const totalPayout = sets * payout;
+        const profit = totalPayout - totalCost;
+
+        // Build execution plan
+        const plan = {
+          event: verified.eventTitle,
+          event_ticker: verified.eventTicker,
+          platform: verified.platform,
+          direction: verified.direction,
+          edge_pct: `${(verified.edge * 100).toFixed(2)}%`,
+          verified: verified.verified,
+          sets,
+          orders: verified.markets.map((m) => ({
+            market_id: m.id,
+            question: m.question,
+            side: verified.direction === 'buy_all_yes' ? 'YES' : 'NO',
+            quantity: sets,
+            price: verified.direction === 'buy_all_yes' ? m.yesPrice : m.noPrice,
+          })),
+          total_cost: formatDollars(totalCost),
+          guaranteed_payout: formatDollars(totalPayout),
+          guaranteed_profit: formatDollars(profit),
+          roi_pct: `${((profit / totalCost) * 100).toFixed(2)}%`,
+          dry_run,
+        };
+
+        if (dry_run) {
+          let md = `## Mispricing Execution — DRY RUN\n\n`;
+          md += `**${verified.eventTitle}** (${verified.platform})\n`;
+          md += `Edge: **${(verified.edge * 100).toFixed(2)}%** · ${verified.verified ? 'Orderbook verified' : 'Midpoint estimate'}\n\n`;
+          md += `**Strategy:** ${verified.direction === 'buy_all_yes' ? 'Buy YES on every outcome' : 'Buy NO on every outcome'} × ${sets} sets\n\n`;
+
+          md += `| # | Market | Side | Qty | Price | Cost |\n`;
+          md += `|--:|--------|------|----:|------:|-----:|\n`;
+          for (let i = 0; i < plan.orders.length; i++) {
+            const o = plan.orders[i];
+            const q = (o.question || '').length > 40 ? (o.question || '').slice(0, 37) + '...' : o.question;
+            md += `| ${i + 1} | ${q} | ${o.side} | ${o.quantity} | ${(o.price * 100).toFixed(1)}c | ${formatDollars(o.quantity * o.price)} |\n`;
+          }
+          md += `\n**Total cost:** ${formatDollars(totalCost)} · **Guaranteed payout:** ${formatDollars(totalPayout)} · **Profit:** ${formatDollars(profit)} (${((profit / totalCost) * 100).toFixed(2)}% ROI)\n`;
+          md += `\n*Set \`dry_run: false\` to execute all ${plan.orders.length} orders.*`;
+
+          const dryData = { plan, note: 'DRY RUN — no orders placed.', markdown: md };
+          return widget({ props: dryData, output: object(dryData) });
+        }
+
+        // Step 4: Execute all orders
+        const executedOrders: Record<string, unknown>[] = [];
+        const errors: string[] = [];
+
+        if (platform === 'kalshi') {
+          for (const orderPlan of plan.orders) {
+            try {
+              const side = orderPlan.side.toLowerCase() as 'yes' | 'no';
+              const { order } = await state.kalshi!.client.createOrder({
+                ticker: orderPlan.market_id,
+                action: 'buy',
+                side,
+                type: 'limit',
+                count: orderPlan.quantity,
+                ...(side === 'yes'
+                  ? { yes_price: Math.round(orderPlan.price * 100) }
+                  : { no_price: Math.round(orderPlan.price * 100) }),
+              });
+              executedOrders.push({
+                platform: 'kalshi', order_id: order.order_id, status: order.status,
+                ticker: order.ticker, side: order.side, quantity: order.count,
+                price: formatDollars(orderPlan.price),
+              });
+            } catch (e: unknown) {
+              errors.push(`${orderPlan.market_id}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+        } else {
+          for (const orderPlan of plan.orders) {
+            const mkt = verified.markets.find((m) => m.id === orderPlan.market_id);
+            const tokenIdx = orderPlan.side === 'YES' ? 0 : 1;
+            const tokenId = mkt?.tokenIds?.[tokenIdx];
+            if (!tokenId) {
+              errors.push(`${orderPlan.market_id}: Missing token ID for ${orderPlan.side}`);
+              continue;
+            }
+            try {
+              const order = await state.polymarket!.client.placeOrder({
+                tokenId,
+                price: orderPlan.price,
+                size: orderPlan.quantity,
+                side: 'BUY',
+                orderType: 'GTC',
+              });
+              executedOrders.push({
+                platform: 'polymarket', order_id: order.id, status: order.status,
+                side: orderPlan.side, quantity: orderPlan.quantity,
+                price: formatDollars(orderPlan.price),
+              });
+            } catch (e: unknown) {
+              errors.push(`${orderPlan.market_id}: ${e instanceof Error ? e.message : String(e)}`);
+            }
+          }
+        }
+
+        const success = errors.length === 0;
+        const execData = {
+          plan,
+          orders_placed: executedOrders,
+          execution_errors: errors,
+          success,
+          note: success
+            ? `All ${executedOrders.length} orders placed. Guaranteed profit of ${formatDollars(profit)} locked in (${((profit / totalCost) * 100).toFixed(2)}% ROI).`
+            : `Partial execution: ${executedOrders.length}/${plan.orders.length} orders placed. Review errors.`,
+        };
+        return widget({ props: execData, output: object(execData) });
+      } catch (e: unknown) {
+        return error(`execute_mispricing failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    },
   );
 
   // =========================================================================

@@ -227,6 +227,13 @@ export class PolymarketClient {
     return this.clobRequest('GET', `/book?token_id=${tokenId}`);
   }
 
+  /** Fetch orderbook without auth — the CLOB /book endpoint is public. */
+  static async getPublicOrderbook(tokenId: string): Promise<PolymarketOrderbook> {
+    const response = await fetch(`${CLOB_URL}/book?token_id=${tokenId}`);
+    if (!response.ok) throw new Error(`CLOB book error: ${response.status}`);
+    return response.json() as Promise<PolymarketOrderbook>;
+  }
+
   async placeOrder(order: PolymarketOrderInput): Promise<PolymarketOrder> {
     // Build order with signing
     const orderPayload = {
