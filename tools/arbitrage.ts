@@ -463,58 +463,58 @@ async function domeMatchedPairs(
   polyMarkets: PolymarketMarket[],
 ): Promise<MatchedMarket[]> {
   const results: MatchedMarket[] = [];
-  try {
-    const sportsSlugs = polyMarkets
-      .filter((m) => {
-        const slug = m.slug || '';
-        return /^(nfl|nba|mlb|nhl|ncaa|mls|epl|soccer|tennis|boxing|ufc|mma)-/.test(slug);
-      })
-      .map((m) => m.slug)
-      .slice(0, 20);
+  // Send ALL polymarket slugs to Dome (not just sports) — Dome decides what it can match.
+  // Batch in chunks of 50 to stay within API limits.
+  const allSlugs = polyMarkets.map((m) => m.slug).filter(Boolean);
+  if (allSlugs.length === 0) return results;
 
-    if (sportsSlugs.length === 0) return results;
+  const kalshiByTicker = new Map(kalshiMarkets.map((m) => [m.ticker, m]));
+  const polyBySlug = new Map(polyMarkets.map((m) => [m.slug, m]));
 
-    const { markets: matchMap } = await dome.getMatchingSportsMarkets({
-      polymarket_slugs: sportsSlugs,
-    });
+  const batchSize = 50;
+  for (let i = 0; i < allSlugs.length; i += batchSize) {
+    const batch = allSlugs.slice(i, i + batchSize);
+    try {
+      const { markets: matchMap } = await dome.getMatchingSportsMarkets({
+        polymarket_slugs: batch,
+      });
 
-    const kalshiByTicker = new Map(kalshiMarkets.map((m) => [m.ticker, m]));
-    const polyBySlug = new Map(polyMarkets.map((m) => [m.slug, m]));
+      for (const [, platforms] of Object.entries(matchMap)) {
+        const kalshiEntry = platforms.find((p) => p.platform === 'KALSHI');
+        const polyEntry = platforms.find((p) => p.platform === 'POLYMARKET');
+        if (!kalshiEntry?.market_tickers?.length || !polyEntry?.market_slug) continue;
 
-    for (const [, platforms] of Object.entries(matchMap)) {
-      const kalshiEntry = platforms.find((p) => p.platform === 'KALSHI');
-      const polyEntry = platforms.find((p) => p.platform === 'POLYMARKET');
-      if (!kalshiEntry?.market_tickers?.length || !polyEntry?.market_slug) continue;
+        const polyMkt = polyBySlug.get(polyEntry.market_slug);
+        if (!polyMkt) continue;
 
-      const polyMkt = polyBySlug.get(polyEntry.market_slug);
-      if (!polyMkt) continue;
+        const parsed = PolymarketClient.parseMarketFields(polyMkt as unknown as Record<string, unknown>);
+        const polyYes = parseFloat(parsed.outcomePrices[0] || '0');
+        const polyNo = parseFloat(parsed.outcomePrices[1] || '0');
+        if (polyYes === 0 && polyNo === 0) continue;
 
-      const parsed = PolymarketClient.parseMarketFields(polyMkt as unknown as Record<string, unknown>);
-      const polyYes = parseFloat(parsed.outcomePrices[0] || '0');
-      const polyNo = parseFloat(parsed.outcomePrices[1] || '0');
+        for (const kTicker of kalshiEntry.market_tickers) {
+          const kMkt = kalshiByTicker.get(kTicker);
+          if (!kMkt) continue;
 
-      for (const kTicker of kalshiEntry.market_tickers) {
-        const kMkt = kalshiByTicker.get(kTicker);
-        if (!kMkt) continue;
-
-        results.push({
-          kalshiTicker: kMkt.ticker,
-          kalshiQuestion: `${kMkt.title} ${kMkt.subtitle || ''}`.trim(),
-          kalshiYesPrice: kalshiCentsToDecimal(kMkt.yes_ask),
-          kalshiNoPrice: kalshiCentsToDecimal(kMkt.no_ask),
-          kalshiYesBid: kalshiCentsToDecimal(kMkt.yes_bid),
-          kalshiYesAsk: kalshiCentsToDecimal(kMkt.yes_ask),
-          polymarketSlug: polyMkt.slug,
-          polymarketQuestion: polyMkt.question,
-          polymarketYesPrice: polyYes,
-          polymarketNoPrice: polyNo,
-          polymarketTokenIds: parsed.clobTokenIds,
-          matchConfidence: 0.99,
-          matchMethod: 'fuzzy' as const,
-        });
+          results.push({
+            kalshiTicker: kMkt.ticker,
+            kalshiQuestion: `${kMkt.title} ${kMkt.subtitle || ''}`.trim(),
+            kalshiYesPrice: kalshiCentsToDecimal(kMkt.yes_ask),
+            kalshiNoPrice: kalshiCentsToDecimal(kMkt.no_ask),
+            kalshiYesBid: kalshiCentsToDecimal(kMkt.yes_bid),
+            kalshiYesAsk: kalshiCentsToDecimal(kMkt.yes_ask),
+            polymarketSlug: polyMkt.slug,
+            polymarketQuestion: polyMkt.question,
+            polymarketYesPrice: polyYes,
+            polymarketNoPrice: polyNo,
+            polymarketTokenIds: parsed.clobTokenIds,
+            matchConfidence: 0.99,
+            matchMethod: 'search' as const, // Dome = verified match
+          });
+        }
       }
-    }
-  } catch { /* non-critical */ }
+    } catch { /* continue with next batch */ }
+  }
   return results;
 }
 
@@ -592,34 +592,39 @@ export function registerArbitrageTools(server: McpServerInstance) {
           return text(`No active Polymarket markets found for category: ${category}.`);
         }
 
-        // Phase 2: Fuzzy matching (threshold 0.30 for broader matching)
-        const fuzzyMatched = matchMarketsAcrossPlatforms(kalshiMarkets, polyMarkets, 0.30);
+        // Phase 1: Dome API — pre-computed verified cross-platform pairs (highest trust)
+        let domeMatched: MatchedMarket[] = [];
+        try {
+          domeMatched = await domeMatchedPairs(kalshiMarkets, polyMarkets);
+        } catch { /* continue without Dome */ }
 
-        // Phase 3: Search-based matching (optional; fallback to polyMarkets when searchText returns 422)
+        // Track what Dome already matched so fuzzy/search don't produce duplicates
+        const domeMatchedTickers = new Set(domeMatched.map((m) => m.kalshiTicker));
+        const domeMatchedPolySlugs = new Set(domeMatched.map((m) => m.polymarketSlug));
+
+        // Phase 2: Fuzzy matching for markets Dome didn't cover
+        const fuzzyMatched = matchMarketsAcrossPlatforms(
+          kalshiMarkets.filter((km) => !domeMatchedTickers.has(km.ticker)),
+          polyMarkets.filter((pm) => !domeMatchedPolySlugs.has(pm.slug)),
+          0.55,
+        );
+
+        // Phase 3: Search-based matching for remaining unmatched
         let searchMatched: Awaited<ReturnType<typeof searchBasedMatch>> = [];
         if (use_search) {
-          const alreadyMatched = new Set(fuzzyMatched.map((m) => m.kalshiTicker));
-          const usedPolyIds = new Set(
-            fuzzyMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
-          );
+          const alreadyMatched = new Set([...domeMatchedTickers, ...fuzzyMatched.map((m) => m.kalshiTicker)]);
+          const usedPolyIds = new Set([
+            ...domeMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
+            ...fuzzyMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
+          ]);
           const polyClient = new PolymarketClient(POLY_DUMMY_KEY);
           searchMatched = await searchBasedMatch(
-            kalshiMarkets, alreadyMatched, polyClient, 0.28, 5, 25, polyMarkets, usedPolyIds,
+            kalshiMarkets, alreadyMatched, polyClient, 0.55, 5, 25, polyMarkets, usedPolyIds,
           );
         }
 
-        // Phase 3b: Dome API matching for pre-computed cross-platform pairs
-        let domeMatched: MatchedMarket[] = [];
-        try {
-          const alreadyMatchedTickers = new Set([
-            ...fuzzyMatched.map((m) => m.kalshiTicker),
-            ...searchMatched.map((m) => m.kalshiTicker),
-          ]);
-          const raw = await domeMatchedPairs(kalshiMarkets, polyMarkets);
-          domeMatched = raw.filter((m) => !alreadyMatchedTickers.has(m.kalshiTicker));
-        } catch { /* non-critical */ }
-
-        const allMatched = [...fuzzyMatched, ...searchMatched, ...domeMatched];
+        // Dome first (highest trust), then fuzzy, then search
+        const allMatched = [...domeMatched, ...fuzzyMatched, ...searchMatched];
         const matchMs = Date.now() - t0;
 
         // Don't bail on zero cross-platform matches — event mispricing below still runs
@@ -1015,14 +1020,25 @@ export function registerArbitrageTools(server: McpServerInstance) {
           fetchPolymarkets(category),
         ]);
 
-        const fuzzyMatched = matchMarketsAcrossPlatforms(kalshiMarkets, polyMarkets, 0.30);
-        const alreadyMatched = new Set(fuzzyMatched.map((m) => m.kalshiTicker));
-        const usedPolyIds = new Set(
-          fuzzyMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
+        // Dome first (verified pairs), then fuzzy+search for leftovers
+        let domeMatched: MatchedMarket[] = [];
+        try { domeMatched = await domeMatchedPairs(kalshiMarkets, polyMarkets); } catch { /* continue */ }
+        const domeTickers = new Set(domeMatched.map((m) => m.kalshiTicker));
+        const domeSlugs = new Set(domeMatched.map((m) => m.polymarketSlug));
+
+        const fuzzyMatched = matchMarketsAcrossPlatforms(
+          kalshiMarkets.filter((km) => !domeTickers.has(km.ticker)),
+          polyMarkets.filter((pm) => !domeSlugs.has(pm.slug)),
+          0.55,
         );
+        const alreadyMatched = new Set([...domeTickers, ...fuzzyMatched.map((m) => m.kalshiTicker)]);
+        const usedPolyIds = new Set([
+          ...domeMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
+          ...fuzzyMatched.map((m) => polyMarkets.find((p) => p.slug === m.polymarketSlug)?.id).filter(Boolean) as string[],
+        ]);
         const polyClient = new PolymarketClient(POLY_DUMMY_KEY);
-        const searchMatched = await searchBasedMatch(kalshiMarkets, alreadyMatched, polyClient, 0.28, 5, 20, polyMarkets, usedPolyIds);
-        const allMatched = [...fuzzyMatched, ...searchMatched];
+        const searchMatched = await searchBasedMatch(kalshiMarkets, alreadyMatched, polyClient, 0.55, 5, 20, polyMarkets, usedPolyIds);
+        const allMatched = [...domeMatched, ...fuzzyMatched, ...searchMatched];
 
         const opportunities = findArbitrageOpportunities(allMatched, 0.003);
         const scanMs = Date.now() - t0;
