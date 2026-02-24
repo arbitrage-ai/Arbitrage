@@ -1000,10 +1000,10 @@ export function registerArbitrageTools(server: McpServerInstance) {
         'WHEN: After scan_mispricing finds a verified opportunity, or user says "execute" / "do it". ' +
         'REQUIRES: Platform authentication (kalshi_login or polymarket_login). ' +
         'HOW: Re-verifies edge against live orderbook, then places limit orders for every outcome in the event. ' +
-        'ALWAYS start with dry_run=true. Only set false after user confirms.',
+        'Executes immediately by default. Set dry_run=true to preview first.',
       widget: {
         name: 'trade-confirmation',
-        invoking: 'Verifying and preparing mispricing trades...',
+        invoking: 'Verifying and executing mispricing trades...',
         invoked: 'Mispricing execution complete',
       },
       schema: z.object({
@@ -1023,8 +1023,8 @@ export function registerArbitrageTools(server: McpServerInstance) {
           .describe('Total dollar amount to stake across all outcomes'),
         dry_run: z
           .boolean()
-          .default(true)
-          .describe('Preview trades without executing. Set false to place real orders.'),
+          .default(false)
+          .describe('Set true to preview trades without executing.'),
       }),
     },
     async ({ platform, event_ticker, direction, stake, dry_run }, ctx: ToolContext) => {
@@ -1084,113 +1084,109 @@ export function registerArbitrageTools(server: McpServerInstance) {
         const totalPayout = sets * payout;
         const profit = totalPayout - totalCost;
 
-        // Build execution plan
+        const side = verified.direction === 'buy_all_yes' ? 'YES' : 'NO';
+        const orderPlans = verified.markets.map((m) => ({
+          market_id: m.id,
+          question: m.question,
+          side,
+          quantity: sets,
+          price: verified.direction === 'buy_all_yes' ? m.yesPrice : m.noPrice,
+          tokenIds: m.tokenIds,
+        }));
+
+        // Build plan in the shape the trade-confirmation widget expects
         const plan = {
-          event: verified.eventTitle,
-          event_ticker: verified.eventTicker,
-          platform: verified.platform,
-          direction: verified.direction,
-          edge_pct: `${(verified.edge * 100).toFixed(2)}%`,
-          verified: verified.verified,
-          sets,
-          orders: verified.markets.map((m) => ({
-            market_id: m.id,
-            question: m.question,
-            side: verified.direction === 'buy_all_yes' ? 'YES' : 'NO',
-            quantity: sets,
-            price: verified.direction === 'buy_all_yes' ? m.yesPrice : m.noPrice,
-          })),
+          opportunity: `${verified.direction === 'buy_all_yes' ? 'Buy YES' : 'Buy NO'} on all ${verified.numOutcomes} outcomes — ${verified.eventTitle} (${platform})`,
+          contracts: sets,
           total_cost: formatDollars(totalCost),
-          guaranteed_payout: formatDollars(totalPayout),
           guaranteed_profit: formatDollars(profit),
+          edge_pct: `${(verified.edge * 100).toFixed(2)}%`,
           roi_pct: `${((profit / totalCost) * 100).toFixed(2)}%`,
           dry_run,
         };
 
         if (dry_run) {
-          let md = `## Mispricing Execution — DRY RUN\n\n`;
-          md += `**${verified.eventTitle}** (${verified.platform})\n`;
-          md += `Edge: **${(verified.edge * 100).toFixed(2)}%** · ${verified.verified ? 'Orderbook verified' : 'Midpoint estimate'}\n\n`;
-          md += `**Strategy:** ${verified.direction === 'buy_all_yes' ? 'Buy YES on every outcome' : 'Buy NO on every outcome'} × ${sets} sets\n\n`;
-
-          md += `| # | Market | Side | Qty | Price | Cost |\n`;
-          md += `|--:|--------|------|----:|------:|-----:|\n`;
-          for (let i = 0; i < plan.orders.length; i++) {
-            const o = plan.orders[i];
-            const q = (o.question || '').length > 40 ? (o.question || '').slice(0, 37) + '...' : o.question;
-            md += `| ${i + 1} | ${q} | ${o.side} | ${o.quantity} | ${(o.price * 100).toFixed(1)}c | ${formatDollars(o.quantity * o.price)} |\n`;
-          }
-          md += `\n**Total cost:** ${formatDollars(totalCost)} · **Guaranteed payout:** ${formatDollars(totalPayout)} · **Profit:** ${formatDollars(profit)} (${((profit / totalCost) * 100).toFixed(2)}% ROI)\n`;
-          md += `\n*Set \`dry_run: false\` to execute all ${plan.orders.length} orders.*`;
-
-          const dryData = { plan, note: 'DRY RUN — no orders placed.', markdown: md };
+          const dryData = {
+            plan,
+            orders: [] as Record<string, unknown>[],
+            execution_errors: [] as string[],
+            note: `DRY RUN — ${orderPlans.length} orders would be placed on ${platform}. Set dry_run=false to execute.`,
+            guaranteed_profit: formatDollars(profit),
+          };
           return widget({ props: dryData, output: object(dryData) });
         }
 
         // Step 4: Execute all orders
         const executedOrders: Record<string, unknown>[] = [];
-        const errors: string[] = [];
+        const execErrors: string[] = [];
 
         if (platform === 'kalshi') {
-          for (const orderPlan of plan.orders) {
+          for (const op of orderPlans) {
             try {
-              const side = orderPlan.side.toLowerCase() as 'yes' | 'no';
+              const kalshiSide = op.side.toLowerCase() as 'yes' | 'no';
               const { order } = await state.kalshi!.client.createOrder({
-                ticker: orderPlan.market_id,
+                ticker: op.market_id,
                 action: 'buy',
-                side,
+                side: kalshiSide,
                 type: 'limit',
-                count: orderPlan.quantity,
-                ...(side === 'yes'
-                  ? { yes_price: Math.round(orderPlan.price * 100) }
-                  : { no_price: Math.round(orderPlan.price * 100) }),
+                count: op.quantity,
+                ...(kalshiSide === 'yes'
+                  ? { yes_price: Math.round(op.price * 100) }
+                  : { no_price: Math.round(op.price * 100) }),
               });
               executedOrders.push({
-                platform: 'kalshi', order_id: order.order_id, status: order.status,
-                ticker: order.ticker, side: order.side, quantity: order.count,
-                price: formatDollars(orderPlan.price),
+                platform: 'kalshi',
+                order_id: order.order_id,
+                status: order.status,
+                ticker: order.ticker,
+                side: order.side,
+                quantity: order.count,
+                price: formatDollars(op.price),
               });
             } catch (e: unknown) {
-              errors.push(`${orderPlan.market_id}: ${e instanceof Error ? e.message : String(e)}`);
+              execErrors.push(`${op.market_id}: ${e instanceof Error ? e.message : String(e)}`);
             }
           }
         } else {
-          for (const orderPlan of plan.orders) {
-            const mkt = verified.markets.find((m) => m.id === orderPlan.market_id);
-            const tokenIdx = orderPlan.side === 'YES' ? 0 : 1;
-            const tokenId = mkt?.tokenIds?.[tokenIdx];
+          for (const op of orderPlans) {
+            const tokenIdx = op.side === 'YES' ? 0 : 1;
+            const tokenId = op.tokenIds?.[tokenIdx];
             if (!tokenId) {
-              errors.push(`${orderPlan.market_id}: Missing token ID for ${orderPlan.side}`);
+              execErrors.push(`${op.market_id}: Missing token ID for ${op.side}`);
               continue;
             }
             try {
               const order = await state.polymarket!.client.placeOrder({
                 tokenId,
-                price: orderPlan.price,
-                size: orderPlan.quantity,
+                price: op.price,
+                size: op.quantity,
                 side: 'BUY',
                 orderType: 'GTC',
               });
               executedOrders.push({
-                platform: 'polymarket', order_id: order.id, status: order.status,
-                side: orderPlan.side, quantity: orderPlan.quantity,
-                price: formatDollars(orderPlan.price),
+                platform: 'polymarket',
+                order_id: order.id,
+                status: order.status,
+                side: op.side,
+                quantity: op.quantity,
+                price: formatDollars(op.price),
               });
             } catch (e: unknown) {
-              errors.push(`${orderPlan.market_id}: ${e instanceof Error ? e.message : String(e)}`);
+              execErrors.push(`${op.market_id}: ${e instanceof Error ? e.message : String(e)}`);
             }
           }
         }
 
-        const success = errors.length === 0;
+        const success = execErrors.length === 0;
         const execData = {
           plan,
-          orders_placed: executedOrders,
-          execution_errors: errors,
+          orders: executedOrders,
+          execution_errors: execErrors,
           success,
+          guaranteed_profit: formatDollars(profit),
           note: success
-            ? `All ${executedOrders.length} orders placed. Guaranteed profit of ${formatDollars(profit)} locked in (${((profit / totalCost) * 100).toFixed(2)}% ROI).`
-            : `Partial execution: ${executedOrders.length}/${plan.orders.length} orders placed. Review errors.`,
+            ? `All ${executedOrders.length} orders placed. Guaranteed profit of ${formatDollars(profit)} locked in.`
+            : `${executedOrders.length}/${orderPlans.length} orders placed. Review errors below.`,
         };
         return widget({ props: execData, output: object(execData) });
       } catch (e: unknown) {
