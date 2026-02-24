@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { text, error, object, markdown } from 'mcp-use/server';
+import { text, error, object, markdown, widget } from 'mcp-use/server';
 import type { McpServerInstance, ToolContext } from 'mcp-use/server';
 import { getSession } from '../lib/utils/session.js';
 import { getSessionId } from '../lib/utils/ctx.js';
@@ -186,6 +186,11 @@ export function registerPortfolioTools(server: McpServerInstance) {
         'WHEN: User asks "how am I doing", wants a summary, or at the start of a session to set context. ' +
         'REQUIRES: Authentication on at least one platform (call auth_status first to show login widget if needed). ' +
         'THEN: Suggest scan_arbitrage for new opportunities based on available balance.',
+      widget: {
+        name: 'portfolio-dashboard',
+        invoking: 'Loading portfolio...',
+        invoked: 'Portfolio loaded',
+      },
       schema: z.object({}),
     },
     async (_params, ctx: ToolContext) => {
@@ -272,12 +277,16 @@ export function registerPortfolioTools(server: McpServerInstance) {
       result.positions = positions;
 
       if (!state.kalshi && !state.polymarket) {
-        return object({
+        const unauthData = {
           ...result,
           next_steps: [
             { tool: 'kalshi_login', reason: 'Authenticate to view Kalshi portfolio and enable arbitrage' },
             { tool: 'polymarket_login_with_api_key', reason: 'Authenticate to view Polymarket portfolio and enable trading' },
           ],
+        };
+        return widget({
+          props: unauthData,
+          output: object(unauthData),
         });
       }
 
@@ -288,7 +297,11 @@ export function registerPortfolioTools(server: McpServerInstance) {
       }
       nextSteps.push({ tool: 'suggest_markets', params: { topic: 'trending' }, reason: 'Discover trending markets to deploy capital' });
 
-      return object({ ...result, next_steps: nextSteps });
+      const portfolioData = { ...result, next_steps: nextSteps };
+      return widget({
+        props: portfolioData,
+        output: object(portfolioData),
+      });
     }
   );
 }

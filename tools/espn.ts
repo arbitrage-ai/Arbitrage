@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { text, error, object, markdown } from 'mcp-use/server';
+import { text, error, object, markdown, widget } from 'mcp-use/server';
 import type { McpServerInstance } from 'mcp-use/server';
 import { ESPNClient } from '../lib/espn/client.js';
 import { SPORT_LEAGUE_MAP } from '../lib/espn/types.js';
@@ -36,6 +36,11 @@ export function registerESPNTools(server: McpServerInstance) {
         'WHEN: User asks about scores, games today, who is playing, or mentions any sports league. ' +
         'THEN: Proactively call suggest_markets or search_markets for related prediction markets. ' +
         'For live games, also call espn_odds(event_id) to compare sportsbook lines with market prices.',
+      widget: {
+        name: 'live-scores',
+        invoking: 'Fetching scores...',
+        invoked: 'Scores loaded',
+      },
       schema: z.object({
         league: leagueEnum.describe(
           'The league to get scores for (nfl, nba, mlb, nhl, ncaaf, ncaab, etc.)'
@@ -119,7 +124,10 @@ export function registerESPNTools(server: McpServerInstance) {
           nextSteps.push({ tool: 'espn_odds', params: { league, event_id: g.event_id }, reason: 'Compare live sportsbook odds with prediction market prices' });
         }
 
-        return object({ league, date: dateStr, games, next_steps: nextSteps, markdown: md });
+        return widget({
+          props: { league, date: dateStr, games, markdown: md },
+          output: object({ league, date: dateStr, games, next_steps: nextSteps, markdown: md }),
+        });
       } catch (e: unknown) {
         return error(
           `ESPN API error: ${e instanceof Error ? e.message : String(e)}`

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { access, readFile } from 'node:fs/promises';
-import { text, error, object } from 'mcp-use/server';
+import { text, error, object, widget } from 'mcp-use/server';
 import type { McpServerInstance, ToolContext } from 'mcp-use/server';
 import { KalshiClient } from '../lib/kalshi/client.js';
 import { PolymarketClient } from '../lib/polymarket/client.js';
@@ -169,6 +169,11 @@ export function registerAuthTools(server: McpServerInstance) {
         'ALWAYS call this instead of asking users to paste credentials in chat. The widget lets users enter API keys, PEM certificates, and private keys securely in form fields. ' +
         'Also call when user asks "am I logged in" / "what accounts do I have".',
       schema: z.object({}),
+      widget: {
+        name: 'auth-login',
+        invoking: 'Loading login...',
+        invoked: 'Login widget ready',
+      },
     },
     async (_params, ctx: ToolContext) => {
       const state = getSession(getSessionId(ctx));
@@ -227,7 +232,10 @@ export function registerAuthTools(server: McpServerInstance) {
         nextSteps.push({ tool: 'portfolio_summary', reason: 'View portfolio overview across authenticated platforms' });
       }
 
-      return object({ auth_status: authStatus, next_steps: nextSteps });
+      return widget({
+        props: { auth_status: authStatus },
+        output: object({ auth_status: authStatus, next_steps: nextSteps }),
+      });
     }
   );
 }

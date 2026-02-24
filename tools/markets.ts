@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { text, error, object } from 'mcp-use/server';
+import { text, error, object, widget } from 'mcp-use/server';
 import type { McpServerInstance, ToolContext } from 'mcp-use/server';
 import { getSession } from '../lib/utils/session.js';
 import { getSessionId } from '../lib/utils/ctx.js';
@@ -184,6 +184,11 @@ export function registerMarketTools(server: McpServerInstance) {
         'WHEN: User mentions a specific event, matchup, or question they want to bet on (e.g. "Lakers vs Celtics", "Will Bitcoin hit $100K"). ' +
         'USE suggest_markets INSTEAD when the topic is broad/conversational. Use search_markets when the user has a specific query. ' +
         'THEN: Use get_market for details on a result, or get_orderbook to check liquidity before trading.',
+      widget: {
+        name: 'order-entry',
+        invoking: 'Searching markets...',
+        invoked: 'Markets found',
+      },
       schema: z.object({
         query: z
           .string()
@@ -342,11 +347,15 @@ export function registerMarketTools(server: McpServerInstance) {
           title: r.question || r.title || '',
         }));
 
-        return object({
+        const searchData = {
           query,
           include_combo,
           markets,
           count: markets.length,
+        };
+        return widget({
+          props: searchData,
+          output: object(searchData),
         });
       } catch (e: unknown) {
         return error(`search_markets failed: ${e instanceof Error ? e.message : String(e)}`);

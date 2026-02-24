@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { text, error, object } from 'mcp-use/server';
+import { text, error, object, widget } from 'mcp-use/server';
 import type { McpServerInstance, ToolContext } from 'mcp-use/server';
 import { getSession } from '../lib/utils/session.js';
 import { getSessionId } from '../lib/utils/ctx.js';
@@ -19,6 +19,11 @@ export function registerTradingTools(server: McpServerInstance) {
         'REQUIRES: Authentication on the target platform. Market ID from get_market or search_markets results. ' +
         'BEFORE: Confirm the market and price with the user. Use get_orderbook for large orders (>10 contracts) to check depth. ' +
         'Set price=0 for auto-pricing at best ask (instant fill). Supports 1 to 1000+ contracts.',
+      widget: {
+        name: 'order-entry',
+        invoking: 'Placing order...',
+        invoked: 'Order placed',
+      },
       schema: z.object({
         platform: z
           .enum(['kalshi', 'polymarket'])

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { text, error, object, markdown } from 'mcp-use/server';
+import { text, error, object, markdown, widget } from 'mcp-use/server';
 import type { McpServerInstance, ToolContext } from 'mcp-use/server';
 import { getSession } from '../lib/utils/session.js';
 import { getSessionId } from '../lib/utils/ctx.js';
@@ -537,6 +537,11 @@ export function registerArbitrageTools(server: McpServerInstance) {
         'HOW: (1) Cross-platform: buy YES on one exchange + NO on other when combined cost < $1. (2) Event mispricing: outcome prices sum ≠ $1. ' +
         'THEN: quick_arb(dry_run: true) to preview the best trade, or get_orderbook to verify liquidity. ' +
         'Best during volatile periods when one platform lags in price updates.',
+      widget: {
+        name: 'arbitrage-scanner',
+        invoking: 'Scanning for arbitrage...',
+        invoked: 'Scan complete',
+      },
       schema: z.object({
         category: z
           .enum(['nfl', 'nba', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'politics', 'economics', 'crypto', 'all'])
@@ -684,7 +689,7 @@ export function registerArbitrageTools(server: McpServerInstance) {
           md += `\n---\n*Execute: \`quick_arb\` with \`category: "${category}"\` and \`max_stake: ${example_stake}\`*`;
         }
 
-        return object({
+        const scanData = {
           scan_summary: {
             sport: label,
             kalshi_markets_fetched: kalshiMarkets.length,
@@ -720,6 +725,10 @@ export function registerArbitrageTools(server: McpServerInstance) {
             edge_pct: parseFloat((o.edge * 100).toFixed(3)),
           })),
           markdown: md,
+        };
+        return widget({
+          props: scanData,
+          output: object(scanData),
         });
       } catch (e: unknown) {
         return error(`Arbitrage scan failed: ${e instanceof Error ? e.message : String(e)}`);
@@ -970,6 +979,11 @@ export function registerArbitrageTools(server: McpServerInstance) {
         'REQUIRES: Both Kalshi + Polymarket authentication for live execution. Kalshi-only for dry runs. Call auth_status first to show login widget if needed. ' +
         'ALWAYS start with dry_run=true to preview. Only set dry_run=false after user confirms. ' +
         'HOW: Scans all markets, finds highest-edge pair, places simultaneous orders at ASK prices for instant fill.',
+      widget: {
+        name: 'trade-confirmation',
+        invoking: 'Scanning and preparing trade...',
+        invoked: 'Trade plan ready',
+      },
       schema: z.object({
         category: z
           .enum(['nfl', 'nba', 'mlb', 'nhl', 'ncaaf', 'ncaab', 'politics', 'economics', 'crypto', 'all'])
@@ -1059,7 +1073,11 @@ export function registerArbitrageTools(server: McpServerInstance) {
           md += formatDetailedOpportunity(best, 1, max_stake);
           md += `\n*Set \`dry_run: false\` to execute this trade.*`;
 
-          return object({ plan, alternatives: opportunities.length - 1, note: 'DRY RUN — no trades placed.', markdown: md });
+          const dryRunData = { plan, alternatives: opportunities.length - 1, note: 'DRY RUN — no trades placed.', markdown: md };
+          return widget({
+            props: dryRunData,
+            output: object(dryRunData),
+          });
         }
 
         // Execute both sides
@@ -1114,11 +1132,15 @@ export function registerArbitrageTools(server: McpServerInstance) {
 
         const success = errors.length === 0;
 
-        return object({
+        const execData = {
           plan, orders, execution_errors: errors, success,
           note: success
             ? `Both orders placed. Net profit of ${formatDollars(profit.netProfit)} locked in (${profit.netROI.toFixed(2)}% ROI).`
             : 'Partial execution — review errors.',
+        };
+        return widget({
+          props: execData,
+          output: object(execData),
         });
       } catch (e: unknown) {
         return error(`quick_arb failed: ${e instanceof Error ? e.message : String(e)}`);
