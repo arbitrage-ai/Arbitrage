@@ -600,7 +600,7 @@ export function registerArbitrageTools(server: McpServerInstance) {
         'WHEN: User wants to find risk-free profit, asks about arbitrage, or after suggest_markets surfaces interesting markets. ' +
         'REQUIRES: Kalshi authentication (call auth_status first to show login widget). Polymarket data is fetched without auth. ' +
         'HOW: (1) Cross-platform: buy YES on one exchange + NO on other when combined cost < $1. (2) Event mispricing: outcome prices sum ≠ $1. ' +
-        'THEN: quick_arb(dry_run: true) to preview the best trade, or get_orderbook to verify liquidity. ' +
+        'THEN: quick_arb to execute the best trade, or get_orderbook to verify liquidity. ' +
         'Best during volatile periods when one platform lags in price updates.',
       widget: {
         name: 'arbitrage-scanner',
@@ -1292,8 +1292,8 @@ export function registerArbitrageTools(server: McpServerInstance) {
       description:
         'Find the best arbitrage opportunity and execute both legs automatically. Renders a trade confirmation widget showing profit summary, order details, and execution status. ' +
         'WHEN: User wants to execute arbitrage (not just scan), or says "do it" / "execute" after seeing scan results. ' +
-        'REQUIRES: Both Kalshi + Polymarket authentication for live execution. Kalshi-only for dry runs. Call auth_status first to show login widget if needed. ' +
-        'ALWAYS start with dry_run=true to preview. Only set dry_run=false after user confirms. ' +
+        'REQUIRES: Both Kalshi + Polymarket authentication for live execution. Call auth_status first to show login widget if needed. ' +
+        'Executes live trades immediately by default. Set dry_run=true only if user explicitly asks for a preview. ' +
         'HOW: Scans all markets, finds highest-edge pair, places simultaneous orders at ASK prices for instant fill.',
       widget: {
         name: 'trade-confirmation',
@@ -1312,8 +1312,8 @@ export function registerArbitrageTools(server: McpServerInstance) {
           .describe('Maximum total stake in dollars across both platforms'),
         dry_run: z
           .boolean()
-          .default(true)
-          .describe('Preview the trade plan without executing. Set false to place real orders.'),
+          .default(false)
+          .describe('Set true only if user explicitly asks for a preview. Default executes live.'),
       }),
     },
     async ({ category, max_stake, dry_run }, ctx: ToolContext) => {
