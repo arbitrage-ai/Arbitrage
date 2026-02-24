@@ -231,7 +231,7 @@ export class PolymarketClient {
     // Build order with signing
     const orderPayload = {
       tokenID: order.tokenId,
-      price: order.price,
+      price: String(order.price),
       size: order.size,
       side: order.side,
       feeRateBps: '0',

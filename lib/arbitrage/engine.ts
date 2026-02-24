@@ -40,7 +40,7 @@ export interface ProfitBreakdown {
 
 /**
  * For each matched pair, check both trade directions for arbitrage.
- * Uses bid prices for realistic execution (what you can actually buy at).
+ * Uses ask prices for realistic execution (what you can actually buy at).
  */
 export function findArbitrageOpportunities(
   matched: MatchedMarket[],
@@ -137,7 +137,7 @@ export function calculateProfit(
     kalshiFees,
     netProfit,
     netROI,
-    profitPer100: netROI,
+    profitPer100: totalInvestment > 0 ? (netProfit / totalInvestment) * 100 : 0,
   };
 }
 

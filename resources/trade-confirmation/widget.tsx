@@ -57,22 +57,93 @@ type Props = z.infer<typeof propSchema>;
 
 function StatusIcon({ success }: { success?: boolean }) {
   if (success === undefined) return null;
+
+  if (success) {
+    return (
+      <div style={{ width: 80, height: 80, marginBottom: 20, position: 'relative' }}>
+        <svg viewBox="0 0 80 80" width="80" height="80">
+          <style>{`
+            @keyframes drawCircle {
+              0% { stroke-dashoffset: 220; }
+              100% { stroke-dashoffset: 0; }
+            }
+            @keyframes drawCheck {
+              0% { stroke-dashoffset: 50; }
+              100% { stroke-dashoffset: 0; }
+            }
+            @keyframes scaleIn {
+              0% { transform: scale(0.8); opacity: 0; }
+              50% { transform: scale(1.05); }
+              100% { transform: scale(1); opacity: 1; }
+            }
+            @keyframes pulseGlow {
+              0%, 100% { filter: drop-shadow(0 0 6px rgba(16, 185, 129, 0.3)); }
+              50% { filter: drop-shadow(0 0 20px rgba(16, 185, 129, 0.6)); }
+            }
+            @keyframes celebratePulse {
+              0% { r: 38; opacity: 0.3; }
+              100% { r: 50; opacity: 0; }
+            }
+            .success-container {
+              animation: scaleIn 0.4s ease-out forwards, pulseGlow 2s ease-in-out infinite 0.8s;
+            }
+            .success-circle {
+              stroke-dasharray: 220;
+              stroke-dashoffset: 220;
+              animation: drawCircle 0.6s ease-out 0.1s forwards;
+            }
+            .success-check {
+              stroke-dasharray: 50;
+              stroke-dashoffset: 50;
+              animation: drawCheck 0.4s ease-out 0.5s forwards;
+            }
+            .celebrate-ring {
+              animation: celebratePulse 0.8s ease-out 0.7s forwards;
+              opacity: 0;
+            }
+          `}</style>
+          <g className="success-container">
+            <circle
+              className="celebrate-ring"
+              cx="40" cy="40" r="38"
+              fill="none" stroke="#10b981" strokeWidth="1"
+            />
+            <circle
+              className="success-circle"
+              cx="40" cy="40" r="35"
+              fill="none" stroke="#10b981" strokeWidth="3"
+              strokeLinecap="round"
+              transform="rotate(-90 40 40)"
+            />
+            <circle cx="40" cy="40" r="33" fill="#d1fae5" fillOpacity="0.15" />
+            <polyline
+              className="success-check"
+              points="24,42 35,52 56,30"
+              fill="none" stroke="#10b981" strokeWidth="4"
+              strokeLinecap="round" strokeLinejoin="round"
+            />
+          </g>
+        </svg>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
         width: 56,
         height: 56,
         borderRadius: '50%',
-        background: success ? '#d1fae5' : '#fee2e2',
+        background: '#fee2e2',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         fontSize: 28,
         marginBottom: 16,
-        border: `3px solid ${success ? '#10b981' : '#ef4444'}`,
+        border: '3px solid #ef4444',
       }}
     >
-      {success ? '✓' : '✗'}
+      ✗
     </div>
   );
 }
@@ -111,11 +182,36 @@ export default function TradeConfirmation() {
 
   return (
     <div style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 700, background: '#fafafa', minHeight: '100vh' }}>
+      <style>{`
+        @keyframes profitFadeIn {
+          0% { opacity: 0; transform: translateY(10px); }
+          100% { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes profitCountUp {
+          0% { opacity: 0; transform: scale(0.5); }
+          60% { transform: scale(1.1); }
+          100% { opacity: 1; transform: scale(1); }
+        }
+      `}</style>
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 24 }}>
         <StatusIcon success={isDryRun ? undefined : success} />
-        <h2 style={{ margin: 0, fontSize: 24, fontWeight: 700, color: '#111', textAlign: 'center', letterSpacing: '-0.02em' }}>
+        <h2 style={{
+          margin: 0, fontSize: 24, fontWeight: 700, color: '#111', textAlign: 'center', letterSpacing: '-0.02em',
+          ...(success && !isDryRun ? { animation: 'profitFadeIn 0.5s ease-out 0.8s both' } : {}),
+        }}>
           {isDryRun ? 'Trade Plan (Dry Run)' : success ? 'Trade Executed!' : 'Partial Execution'}
         </h2>
+        {success && !isDryRun && props.guaranteed_profit && (
+          <div style={{
+            marginTop: 12,
+            fontSize: 36,
+            fontWeight: 800,
+            color: '#10b981',
+            animation: 'profitCountUp 0.6s ease-out 1.0s both',
+          }}>
+            +{props.guaranteed_profit}
+          </div>
+        )}
         {note && (
           <p style={{ margin: '10px 0 0', fontSize: 14, color: '#666', textAlign: 'center' }}>
             {note}

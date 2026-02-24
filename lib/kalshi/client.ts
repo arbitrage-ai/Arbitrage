@@ -21,7 +21,7 @@ function chunkString(value: string, size: number): string[] {
 }
 
 function normalizePrivateKeyPem(privateKeyPem: string): string {
-  const input = privateKeyPem.replace(/\\r/g, '').replace(/\\n/g, '\n').trim();
+  const input = privateKeyPem.replace(/\\r/g, '').replace(/\\n/g, '\n').replace(/\r/g, '').trim();
 
   // If we have BEGIN/END markers (possibly one-line), normalize body to 64-char PEM lines.
   const beginMatch = input.match(/-----BEGIN ([A-Z ]+)-----/);

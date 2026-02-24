@@ -256,7 +256,6 @@ export function registerMarketTools(server: McpServerInstance) {
             if (domeResults.length > 0) {
               for (const m of domeResults) {
                 if (!include_combo && isLikelyComboMarket(m.market_slug, m.title)) continue;
-                const yesPrice = m.side_a ? 0 : 0;
                 results.push({
                   platform: 'polymarket',
                   slug: m.market_slug,

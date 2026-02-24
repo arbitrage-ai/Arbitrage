@@ -108,8 +108,7 @@ export default function OrderEntry() {
 
   const { callTool: placeOrder, isPending: orderPending, isSuccess: orderSuccess, isError: orderError } = useCallTool<{
     platform: 'kalshi' | 'polymarket';
-    ticker?: string;
-    slug?: string;
+    market_id: string;
     side: 'yes' | 'no';
     action: 'buy' | 'sell';
     quantity: number;
@@ -126,23 +125,15 @@ export default function OrderEntry() {
   const handlePlaceOrder = () => {
     if (!selectedMarket || quantity <= 0) return;
 
-    const orderParams: any = {
+    placeOrder({
       platform,
+      market_id: selectedMarket,
       side,
       action,
       quantity,
+      price,
       order_type: 'limit',
-    };
-
-    if (platform === 'kalshi') {
-      orderParams.ticker = selectedMarket;
-      orderParams.price = price;
-    } else {
-      orderParams.slug = selectedMarket;
-      orderParams.price = price;
-    }
-
-    placeOrder(orderParams);
+    });
   };
 
   const totalCost = quantity * price;

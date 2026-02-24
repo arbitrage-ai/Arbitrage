@@ -66,8 +66,12 @@ export interface ESPNOdds {
   details: string;
   overUnder: number;
   spread: number;
-  homeTeamOdds: { moneyLine: number; spreadOdds: number };
-  awayTeamOdds: { moneyLine: number; spreadOdds: number };
+  homeTeamOdds: { favorite: boolean; underdog: boolean };
+  awayTeamOdds: { favorite: boolean; underdog: boolean };
+  moneyline?: {
+    home: { close: { odds: string }; open?: { odds: string } };
+    away: { close: { odds: string }; open?: { odds: string } };
+  };
 }
 
 export interface ESPNSituation {

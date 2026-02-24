@@ -35,6 +35,6 @@ export function formatPercent(decimal: number): string {
 }
 
 export function formatPnl(amount: number): string {
-  const sign = amount >= 0 ? '+' : '';
-  return `${sign}$${amount.toFixed(2)}`;
+  if (amount >= 0) return `+$${amount.toFixed(2)}`;
+  return `-$${Math.abs(amount).toFixed(2)}`;
 }

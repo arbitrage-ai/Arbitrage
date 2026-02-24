@@ -57,6 +57,14 @@ export function registerESPNTools(server: McpServerInstance) {
           const away = comp?.competitors?.find((c) => c.homeAway === 'away');
           const odds = comp?.odds?.[0];
 
+          // Moneyline is nested under odds.moneyline.{home,away}.close.odds as a string
+          const homeML = odds?.moneyline?.home?.close?.odds
+            ? parseInt(odds.moneyline.home.close.odds, 10)
+            : undefined;
+          const awayML = odds?.moneyline?.away?.close?.odds
+            ? parseInt(odds.moneyline.away.close.odds, 10)
+            : undefined;
+
           return {
             event_id: event.id,
             name: event.shortName,
@@ -73,8 +81,8 @@ export function registerESPNTools(server: McpServerInstance) {
               ? {
                   spread: odds.details,
                   over_under: odds.overUnder,
-                  home_moneyline: odds.homeTeamOdds?.moneyLine,
-                  away_moneyline: odds.awayTeamOdds?.moneyLine,
+                  home_moneyline: homeML,
+                  away_moneyline: awayML,
                 }
               : {}),
           };

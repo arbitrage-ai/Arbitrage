@@ -85,21 +85,20 @@ async function fetchKalshiMarkets(
   }
 
   // Always fetch broad set for 'all' or as supplement
+  let broadCursor = '';
   if (allMarkets.length < 50 || category === 'all') {
     try {
-      const { markets } = await client.getMarkets({ status: 'open', limit: 200 });
-      add(markets);
+      const res = await client.getMarkets({ status: 'open', limit: 200 });
+      add(res.markets);
+      broadCursor = res.cursor || '';
     } catch { /* ignore */ }
   }
 
-  // Second page for maximum coverage
-  if (category === 'all' && allMarkets.length >= 200) {
+  // Second page for maximum coverage (reuse cursor from first broad fetch)
+  if (category === 'all' && allMarkets.length >= 200 && broadCursor) {
     try {
-      const { markets, cursor } = await client.getMarkets({ status: 'open', limit: 200 });
-      if (cursor) {
-        const { markets: page2 } = await client.getMarkets({ status: 'open', limit: 200, cursor });
-        add(page2);
-      }
+      const { markets: page2 } = await client.getMarkets({ status: 'open', limit: 200, cursor: broadCursor });
+      add(page2);
     } catch { /* ignore */ }
   }
 
@@ -272,14 +271,17 @@ async function scanKalshiEventMispricing(
       events.set(m.event_ticker, group);
     }
 
-    // Second page
+    // Second page using cursor from first response
     try {
-      const page2 = await client.getMarkets({ status: 'open', limit: 200, cursor: 'page2' });
-      for (const m of page2.markets) {
-        if (m.yes_ask <= 0 || m.no_ask <= 0) continue;
-        const group = events.get(m.event_ticker) || [];
-        group.push(m);
-        events.set(m.event_ticker, group);
+      const firstPage = await client.getMarkets({ status: 'open', limit: 200 });
+      if (firstPage.cursor) {
+        const page2 = await client.getMarkets({ status: 'open', limit: 200, cursor: firstPage.cursor });
+        for (const m of page2.markets) {
+          if (m.yes_ask <= 0 || m.no_ask <= 0) continue;
+          const group = events.get(m.event_ticker) || [];
+          group.push(m);
+          events.set(m.event_ticker, group);
+        }
       }
     } catch { /* ignore */ }
 
@@ -498,10 +500,10 @@ async function domeMatchedPairs(
         results.push({
           kalshiTicker: kMkt.ticker,
           kalshiQuestion: `${kMkt.title} ${kMkt.subtitle || ''}`.trim(),
-          kalshiYesPrice: kalshiCentsToDecimal(kMkt.yes_bid),
-          kalshiNoPrice: kalshiCentsToDecimal(kMkt.no_bid),
-          kalshiYesBid: kMkt.yes_bid,
-          kalshiYesAsk: kMkt.yes_ask,
+          kalshiYesPrice: kalshiCentsToDecimal(kMkt.yes_ask),
+          kalshiNoPrice: kalshiCentsToDecimal(kMkt.no_ask),
+          kalshiYesBid: kalshiCentsToDecimal(kMkt.yes_bid),
+          kalshiYesAsk: kalshiCentsToDecimal(kMkt.yes_ask),
           polymarketSlug: polyMkt.slug,
           polymarketQuestion: polyMkt.question,
           polymarketYesPrice: polyYes,
@@ -894,13 +896,15 @@ export function registerArbitrageTools(server: McpServerInstance) {
         if (!state.kalshi) return error('Not authenticated on Kalshi. Run kalshi_login first.');
         try {
           const { market } = await state.kalshi.client.getMarket(market_id);
-          const yesPrice = kalshiCentsToDecimal(market.yes_bid);
-          const noPrice = kalshiCentsToDecimal(market.no_bid);
+          const yesBid = kalshiCentsToDecimal(market.yes_bid);
+          const yesAsk = kalshiCentsToDecimal(market.yes_ask);
+          const yesMid = (yesBid + yesAsk) / 2;
+          const noMid = 1 - yesMid;
           result.market = {
             question: `${market.title} ${market.subtitle}`.trim(),
-            yes_price: yesPrice, no_price: noPrice,
-            yes_implied_prob: formatPercent(yesPrice), no_implied_prob: formatPercent(noPrice),
-            yes_bid: kalshiCentsToDecimal(market.yes_bid), yes_ask: kalshiCentsToDecimal(market.yes_ask),
+            yes_price: yesMid, no_price: noMid,
+            yes_implied_prob: formatPercent(yesMid), no_implied_prob: formatPercent(noMid),
+            yes_bid: yesBid, yes_ask: yesAsk,
             spread: kalshiCentsToDecimal(market.yes_ask - market.yes_bid),
             volume: market.volume, close_time: market.close_time,
           };
@@ -1088,10 +1092,10 @@ export function registerArbitrageTools(server: McpServerInstance) {
           const tokenId = best.polymarketTokenIds?.[best.polymarketTokenIdx];
           if (tokenId) {
             try {
-              const pmSide = best.polymarketSide === 'YES' ? 'BUY' : 'SELL';
+              // Always BUY — we're buying the YES or NO token directly
               const order = await state.polymarket.client.placeOrder({
                 tokenId, price: best.polymarketPrice,
-                size: profit.contracts, side: pmSide as 'BUY' | 'SELL', orderType: 'GTC',
+                size: profit.contracts, side: 'BUY', orderType: 'GTC',
               });
               orders.push({
                 platform: 'polymarket', order_id: order.id, status: order.status,

@@ -244,6 +244,7 @@ export function registerPortfolioTools(server: McpServerInstance) {
 
           result.polymarket = {
             address: state.polymarket.address,
+            balance: formatDollars(totalBalance),
             open_positions: polyPositions.length,
             total_pnl: formatPnl(totalPnl),
           };
