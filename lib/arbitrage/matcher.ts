@@ -20,6 +20,30 @@ export interface MatchedMarket {
   matchMethod: 'fuzzy' | 'search';
 }
 
+// ---------------------------------------------------------------------------
+// Combo / parlay / multi-leg market detection
+// ---------------------------------------------------------------------------
+
+const COMBO_PATTERNS = [
+  'multigame', 'multi-game', 'multi game',
+  'extended', 'combo', 'parlay',
+  'accumulator', 'multi-leg', 'multi leg',
+  'sgp',  // same-game parlay
+];
+
+/**
+ * Detect combo/parlay/multi-leg markets that should never be cross-matched.
+ * Checks ticker, title, subtitle, and slug.
+ */
+export function isComboMarket(...parts: Array<string | undefined>): boolean {
+  const joined = parts.filter(Boolean).join(' ').toLowerCase();
+  return COMBO_PATTERNS.some((p) => joined.includes(p));
+}
+
+// ---------------------------------------------------------------------------
+// Text normalization & feature extraction
+// ---------------------------------------------------------------------------
+
 function normalize(text: string): string {
   return text
     .toLowerCase()
@@ -61,11 +85,51 @@ function extractAbbreviations(text: string): string[] {
   return matches.map((m) => m.toLowerCase());
 }
 
+// ---------------------------------------------------------------------------
+// Structural validation — catches the "parlay vs single game" class of errors
+// ---------------------------------------------------------------------------
+
+/**
+ * Hard-reject pairs that are structurally incompatible even if text looks similar.
+ * Returns true if the pair should be REJECTED.
+ */
+function structuralMismatch(kalshiText: string, polyText: string): boolean {
+  const kLower = kalshiText.toLowerCase();
+  const pLower = polyText.toLowerCase();
+
+  // One is a multi-team market and the other isn't
+  // Count team-like comma-separated items ("yes Boston,yes Chicago,yes ...")
+  const kCommaTeams = (kLower.match(/yes\s+\w+/gi) || []).length;
+  const pCommaTeams = (pLower.match(/yes\s+\w+/gi) || []).length;
+  if (kCommaTeams >= 3 && pCommaTeams <= 1) return true;
+  if (pCommaTeams >= 3 && kCommaTeams <= 1) return true;
+
+  // Numbers must overlap if both have threshold-like numbers (e.g., "217.5")
+  const kNums = extractNumbers(kalshiText);
+  const pNums = extractNumbers(polyText);
+  // Both have decimal thresholds (like "217.5") — they must match
+  const kDecimals = kNums.filter((n) => n.includes('.'));
+  const pDecimals = pNums.filter((n) => n.includes('.'));
+  if (kDecimals.length > 0 && pDecimals.length > 0) {
+    const overlap = kDecimals.some((n) => pDecimals.includes(n));
+    if (!overlap) return true;
+  }
+
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// Scoring
+// ---------------------------------------------------------------------------
+
 /**
  * Compute match score between two market texts with entity-aware weighting.
  * Numbers and proper nouns are weighted much higher than generic keywords.
  */
 function computeScore(kalshiText: string, polyText: string): number {
+  // Hard structural rejection
+  if (structuralMismatch(kalshiText, polyText)) return 0;
+
   const kNorm = normalize(kalshiText);
   const pNorm = normalize(polyText);
 
@@ -138,6 +202,11 @@ function parsePolyPrices(pm: PolymarketMarket) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Minimum confidence for arbitrage — anything below this is noise
+// ---------------------------------------------------------------------------
+const MIN_ARB_CONFIDENCE = 0.55;
+
 /**
  * Phase 1: Fuzzy matching of pre-fetched market lists.
  */
@@ -146,25 +215,34 @@ export function matchMarketsAcrossPlatforms(
   polyMarkets: PolymarketMarket[],
   threshold = 0.35
 ): MatchedMarket[] {
+  const effectiveThreshold = Math.max(threshold, MIN_ARB_CONFIDENCE);
   const results: MatchedMarket[] = [];
   const usedPolyIds = new Set<string>();
 
-  for (const km of kalshiMarkets) {
+  // Pre-filter: remove combo/parlay markets from both sides
+  const kalshiFiltered = kalshiMarkets.filter(
+    (km) => !isComboMarket(km.ticker, km.event_ticker, km.title, km.subtitle)
+  );
+  const polyFiltered = polyMarkets.filter(
+    (pm) => !isComboMarket(pm.slug, pm.question, (pm as { description?: string }).description)
+  );
+
+  for (const km of kalshiFiltered) {
     const kmText = `${km.title} ${km.subtitle}`;
     let bestScore = 0;
     let bestIdx = -1;
 
-    for (let i = 0; i < polyMarkets.length; i++) {
-      if (usedPolyIds.has(polyMarkets[i].id)) continue;
-      const score = computeScore(kmText, polyMarkets[i].question);
+    for (let i = 0; i < polyFiltered.length; i++) {
+      if (usedPolyIds.has(polyFiltered[i].id)) continue;
+      const score = computeScore(kmText, polyFiltered[i].question);
       if (score > bestScore) {
         bestScore = score;
         bestIdx = i;
       }
     }
 
-    if (bestScore >= threshold && bestIdx >= 0) {
-      const pm = polyMarkets[bestIdx];
+    if (bestScore >= effectiveThreshold && bestIdx >= 0) {
+      const pm = polyFiltered[bestIdx];
       const { yesPrice, noPrice, tokenIds } = parsePolyPrices(pm);
       if (yesPrice === 0 && noPrice === 0) continue;
 
@@ -212,6 +290,7 @@ function matchOneAgainstPoly(
   polyMarkets: PolymarketMarket[],
   threshold: number,
 ): MatchedMarket | null {
+  const effectiveThreshold = Math.max(threshold, MIN_ARB_CONFIDENCE);
   const kmText = `${km.title} ${km.subtitle}`;
   let bestScore = 0;
   let bestPm: PolymarketMarket | null = null;
@@ -219,6 +298,8 @@ function matchOneAgainstPoly(
   for (const pm of polyMarkets) {
     if (!pm.question) continue;
     if (pm.closed === true || (pm as { active?: boolean }).active === false) continue;
+    // Skip combo markets on the Poly side too
+    if (isComboMarket(pm.slug, pm.question, (pm as { description?: string }).description)) continue;
     const polyText = `${(pm as { eventTitle?: string }).eventTitle || ''} ${pm.question}`.trim();
     const score = computeScore(kmText, polyText);
     if (score > bestScore) {
@@ -227,7 +308,7 @@ function matchOneAgainstPoly(
     }
   }
 
-  if (bestScore >= threshold && bestPm) {
+  if (bestScore >= effectiveThreshold && bestPm) {
     const { yesPrice, noPrice, tokenIds } = parsePolyPrices(bestPm);
     if (yesPrice === 0 && noPrice === 0) return null;
     return {
@@ -264,7 +345,11 @@ export async function searchBasedMatch(
   usedPolyIds?: Set<string>,
 ): Promise<MatchedMarket[]> {
   const results: MatchedMarket[] = [];
-  const unmatched = kalshiMarkets.filter((km) => !alreadyMatchedTickers.has(km.ticker));
+  // Pre-filter: skip combo markets and already-matched
+  const unmatched = kalshiMarkets.filter(
+    (km) => !alreadyMatchedTickers.has(km.ticker) &&
+            !isComboMarket(km.ticker, km.event_ticker, km.title, km.subtitle)
+  );
   const toSearch = unmatched.slice(0, maxSearches);
   const usedIds = new Set(usedPolyIds);
 

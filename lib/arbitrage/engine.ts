@@ -24,6 +24,8 @@ export interface ArbitrageOpportunity {
   roi: number;
   matchConfidence: number;
   matchMethod: 'fuzzy' | 'search';
+  /** Quality score: edge weighted by match confidence. Use this for ranking. */
+  qualityScore: number;
 }
 
 export interface ProfitBreakdown {
@@ -41,6 +43,9 @@ export interface ProfitBreakdown {
 /**
  * For each matched pair, check both trade directions for arbitrage.
  * Uses ask prices for realistic execution (what you can actually buy at).
+ *
+ * Sorted by qualityScore (edge * confidence), NOT raw edge.
+ * This prevents garbage low-confidence matches from ranking above real opportunities.
  */
 export function findArbitrageOpportunities(
   matched: MatchedMarket[],
@@ -56,6 +61,7 @@ export function findArbitrageOpportunities(
     const cost1 = m.kalshiYesPrice + m.polymarketNoPrice;
     const edge1 = 1.0 - cost1;
     if (edge1 > minEdge && cost1 > 0) {
+      const qualityScore = edge1 * m.matchConfidence;
       opportunities.push({
         id: `${m.kalshiTicker}::YES+NO`,
         eventName: m.kalshiQuestion,
@@ -76,6 +82,7 @@ export function findArbitrageOpportunities(
         roi: (edge1 / cost1) * 100,
         matchConfidence: m.matchConfidence,
         matchMethod: m.matchMethod,
+        qualityScore,
       });
     }
 
@@ -83,6 +90,7 @@ export function findArbitrageOpportunities(
     const cost2 = m.kalshiNoPrice + m.polymarketYesPrice;
     const edge2 = 1.0 - cost2;
     if (edge2 > minEdge && cost2 > 0) {
+      const qualityScore = edge2 * m.matchConfidence;
       opportunities.push({
         id: `${m.kalshiTicker}::NO+YES`,
         eventName: m.kalshiQuestion,
@@ -103,11 +111,13 @@ export function findArbitrageOpportunities(
         roi: (edge2 / cost2) * 100,
         matchConfidence: m.matchConfidence,
         matchMethod: m.matchMethod,
+        qualityScore,
       });
     }
   }
 
-  return opportunities.sort((a, b) => b.edge - a.edge);
+  // Sort by quality score: confidence-weighted edge, not raw edge
+  return opportunities.sort((a, b) => b.qualityScore - a.qualityScore);
 }
 
 /** Calculate fee-aware profit breakdown for a given number of contracts */

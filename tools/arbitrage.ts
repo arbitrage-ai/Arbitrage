@@ -714,6 +714,7 @@ export function registerArbitrageTools(server: McpServerInstance) {
             polymarket_token_idx: o.polymarketTokenIdx,
             polymarket_price: o.polymarketPrice,
             match_confidence: parseFloat((o.matchConfidence * 100).toFixed(0)),
+            quality_score: parseFloat(o.qualityScore.toFixed(4)),
             match_method: o.matchMethod,
           })),
           event_mispricing: eventFiltered.slice(0, 5).map((o) => ({
